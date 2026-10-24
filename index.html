@@ -1,6 +1,35 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#101c20"><title>Deep Below — a diamond expedition</title><link rel="stylesheet" href="style.css"></head><body>
-<main><section class="game-shell" aria-label="Diamond mining game"><div class="toolbar"><div><span class="status-dot"></span><span id="status">READY TO DESCEND</span></div><button id="sound" aria-label="Enable sound">Sound off</button><div class="stats"><span>DEPTH <b id="depth">0m</b></span><span class="diamond">◆ <b id="gems">0 / 8</b></span><span id="hearts" aria-label="3 lives">♥ ♥ ♥</span></div><button id="pause" aria-label="Pause game">Ⅱ</button></div>
-<div class="playfield"><canvas id="game" aria-label="Mine underground for eight diamonds and return to the surface. Hold a direction to move and dig." tabindex="0"></canvas><div id="overlay" class="overlay"><div class="overlay-card"><span class="eyebrow" id="overline">THE UNDERGROUND IS CALLING</span><h2 id="title">A little courage.<br>A lot of diamonds.</h2><p id="message">Find 8 diamonds and bring them back to the surface.<br>Stay clear of the giant snakes.</p><button id="start" class="primary">Let’s dig <span>↘</span></button><small>HOLD TO MOVE & DIG · RELEASE TO STOP</small></div></div><div id="toast" role="status"></div><div class="compass" aria-hidden="true">N<br>↑</div></div>
-<div class="game-footer"><span><i class="key">↖</i> Hold anywhere to move & dig</span><span><i class="gem-icon">◆</i> Collect 8 & return to camp</span><span><i class="snake-icon">〰</i> Give snakes some space</span></div></section>
-</main><script src="game.js"></script></body></html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#14251f">
+  <title>Djupt under — Den sovande solen</title>
+  <link rel="stylesheet" href="style.css?v=2">
+</head>
+<body>
+  <main id="expedition">
+    <canvas id="game" tabindex="0" aria-label="Håll ett finger eller musen i den riktning du vill gå och gräva. Använd ett andra finger för borr och bloss. Piltangenter och WASD fungerar också."></canvas>
+    <div class="hud" id="hud">
+      <div class="location"><span class="eyebrow" id="biome">ROTDJUPET</span><strong id="depth">0m</strong><span id="hearts" aria-label="5 hjärtan">♥ ♥ ♥ ♥ ♥</span></div>
+      <div class="mission"><span id="relics">◇ ◇ ◇</span><span id="objective">Hitta den första reliken</span></div>
+      <div class="haul"><span class="eyebrow">I DIN RYGGSÄCK</span><strong>◆ <span id="gems">0</span></strong><span id="combo"></span></div>
+      <button id="pause" class="icon-button" aria-label="Pausa spelet" title="Pausa (P)">Ⅱ</button>
+    </div>
+    <div id="threat" class="threat hidden" role="status">Något hörde dig. Fortsätt röra dig.</div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="chapter" class="chapter"><small>DJUPARE IN I DET OKÄNDA</small><strong></strong></div>
+    <div class="map-wrap" id="map-wrap"><canvas id="map" width="116" height="192" aria-label="Karta över utforskade tunnlar, reliker och din plats"></canvas><span>◇ RELIKER · ● DU</span></div>
+    <div class="bottom-left"><button id="map-toggle" aria-label="Visa eller dölj grottkartan" aria-pressed="true">Karta <kbd>M</kbd></button><button id="sound" aria-label="Slå på ljudet" aria-pressed="false">Ljud av</button></div>
+    <div id="hint" class="hint">Håll för att gå och gräva <span>·</span> Använd ett andra finger för verktyg</div>
+    <div class="actions">
+      <button id="bank" class="bank hidden">↑ Säkra fynden <small>ÅTERVÄND TILL LÄGRET</small></button>
+      <button id="drill" class="tool drill"><span class="tool-icon">↯</span><span>Turboborra<small id="drill-label">REDO</small></span><span class="recharge" id="recharge"></span></button>
+      <button id="flare" class="tool"><span class="tool-icon">✦</span><span>Bloss <b id="flare-count">3</b><small>BEDÖVA ORMAR · F</small></span></button>
+    </div>
+    <div id="overlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="panel-title"><section id="panel" class="panel"></section></div>
+  </main>
+  <script src="engine.js?v=2"></script>
+  <script src="game.js?v=2"></script>
+</body>
+</html>
