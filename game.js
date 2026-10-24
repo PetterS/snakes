@@ -6,7 +6,8 @@
   const map = $('#map'), mctx = map.getContext('2d');
   const T = 36, reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let width=1000, height=650, scale=1, pixelRatio=1, camera={x:0,y:0}, last=performance.now();
-  let game, pointer=null, keys=new Set(), particles=[], labels=[], rings=[], shake=0;
+  let game, pointer=null, keys=new Set(), particles=[], labels=[], rings=[], impacts=[], shake=0;
+  let pickSwing=0, pickDirection=2, digSoundTimer=0, haulPulse=0, comboPulse=0;
   let clock=0, uiTimer=0, toastTimer=0, chapterTimer=0, rockHint=0, whisperHint=0, ambienceTimer=0, mapOpen=true;
   let audio=null, sound=false, storageOK=true, saved={bank:0,best:0,runs:0,wins:0,upgrades:{pick:0,boots:0,armor:0}};
   const elements = Object.fromEntries(['biome','depth','hearts','relics','objective','gems','combo','drill','drill-label','recharge','flare','flare-count','bank','threat'].map(id=>[id,$('#'+id)]));
@@ -29,10 +30,18 @@
   }
   function note(freq,duration=.13,type='sine',volume=.035,delay=0) {
     if(!sound||!audio||audio.state!=='running')return;
-    const now=audio.currentTime+delay,o=audio.createOscillator(),g=audio.createGain();
-    o.type=type;o.frequency.setValueAtTime(freq,now);g.gain.setValueAtTime(volume,now);
-    g.gain.exponentialRampToValueAtTime(.001,now+duration);o.connect(g);g.connect(audio.destination);o.start(now);o.stop(now+duration);
-    o.onended=()=>{o.disconnect();g.disconnect();};
+    try {
+      const now=audio.currentTime+delay,o=audio.createOscillator(),g=audio.createGain();
+      o.type=type;o.frequency.setValueAtTime(freq,now);g.gain.setValueAtTime(volume,now);
+      g.gain.exponentialRampToValueAtTime(.001,now+duration);o.connect(g);g.connect(audio.destination);o.start(now);o.stop(now+duration);
+      o.onended=()=>{o.disconnect();g.disconnect();};
+    } catch {sound=false;}
+  }
+  function digSound(rock,drill) {
+    if(digSoundTimer>0&&!rock)return;
+    digSoundTimer=drill?.09:.07;
+    note(rock?165:drill?95:125,.055,rock?'square':'triangle',rock?.022:.014);
+    if(rock){note(740,.035,'triangle',.024);note(310,.065,'triangle',.018,.025);}
   }
   function chord() {[392,494,587,784].forEach((f,i)=>note(f,.4,'sine',.04,i*.09));}
   function toast(message,time=3.5) {$('#toast').textContent=message;$('#toast').style.opacity=1;toastTimer=time;}
@@ -69,7 +78,7 @@
   }
   function start() {
     unlockAudio();game=new E.Game(Date.now()^Math.floor(Math.random()*1e9),saved.upgrades);game.start();
-    particles=[];labels=[];rings=[];shake=0;clearInput();hidePanel();updateHUD();drawMap();
+    particles=[];labels=[];rings=[];impacts=[];shake=0;pickSwing=0;digSoundTimer=0;haulPulse=0;comboPulse=0;clearInput();hidePanel();updateHUD();drawMap();
     toast('Håll i en riktning för att gräva. Följ ◇ till den första reliken.',5);
   }
   function pause() {
@@ -78,6 +87,7 @@
       '<p>Håll i en riktning för att gå. Borren tar dig genom sten och ormar. Bloss bedövar ormar i närheten och lockar bort andra.</p>'+
       '<p>De första tre relikerna öppnar Nattporten vid grottans botten. Tre till ligger gömda i dödsriket. För hem alla sex, eller återvänd tidigare och säkra dina fynd.</p>'+
       '<p>I dödsriket tar bett två hjärtan. Fasor går genom väggar: lämna den röda ringen innan de anfaller. Bloss driver bort dem, borren bedövar dem. Kistor ger hjärtan och bloss.</p>'+
+      '<p>Följ diamantådrorna. Samla utan fyra sekunders uppehåll för att nå dubbelt, tredubbelt och fyrdubbelt värde. Men ådrorna leder ofta mot ormarna.</p>'+
       '<div class="run-perks">'+[...game.perks].map(id=>E.PERKS.find(p=>p.id===id).name).join(' · ')+'</div>'+
       '<button id="resume" class="primary">Fortsätt utforska</button>');
     $('#resume').addEventListener('click',()=>{unlockAudio();game.resume();hidePanel();});
@@ -107,17 +117,31 @@
       $('#again').addEventListener('click',start);bindShop(render);
     };render();
   }
-  function burst(x,y,color,count=12) {
-    for(let i=0;i<count;i++)particles.push({x:x*T+T/2,y:y*T+T/2,vx:(Math.random()-.5)*150,vy:(Math.random()-.6)*150,life:.4+Math.random()*.4,max:.8,color,size:2+Math.random()*3});
+  function burst(x,y,color,count=12,dir=null,rock=false) {
+    if(reducedMotion)count=Math.ceil(count*.4);
+    const d=dir===null?{x:0,y:0}:E.DIRS[dir];
+    for(let i=0;i<count;i++)particles.push({x:x*T+T/2,y:y*T+T/2,vx:(Math.random()-.5)*150-d.x*85,vy:(Math.random()-.6)*150-d.y*85,life:.25+Math.random()*.35,color,size:(rock?3:2)+Math.random()*(rock?5:3)});
     if(particles.length>180)particles.splice(0,particles.length-180);
   }
   function events() {
     for(const event of game.drainEvents()) {
       const p=game.player;
-      if(event.type==='dig'){burst(event.x,event.y,E.BIOMES[E.biomeAt(event.y)].soil[2],event.drill?8:4);if(event.drill)shake=.08;}
+      if(event.type==='dig'){
+        burst(event.x,event.y,event.rock?'#b8c3ba':E.BIOMES[E.biomeAt(event.y)].soil[2],event.rock?16:event.drill?8:6,event.dir,event.rock);
+        impacts.push({x:event.x*T+18,y:event.y*T+18,dir:event.dir,rock:event.rock,life:.22});
+        pickSwing=.16;pickDirection=event.dir;digSound(event.rock,event.drill);
+        if(event.drill)shake=Math.max(shake,event.rock?.16:.08);
+      }
       if(event.type==='gem') {
-        burst(event.x,event.y,'#89f5d1',8);labels.push({x:event.x*T+18,y:event.y*T,text:'+'+event.amount,color:'#b4ffe1',life:1});
-        note([523,587,659,784,880][event.combo%5],.12,'sine',.025);
+        const color=event.multiplier===4?'#ffe3a0':'#b4ffe1';haulPulse=.22;
+        burst(event.x,event.y,color,6+event.multiplier*2);labels.push({x:event.x*T+18,y:event.y*T,text:'+'+event.amount,color,life:.8});
+        note([523,587,659,784,880][(event.combo-1)%5]*Math.pow(2,(event.multiplier-1)/3),.15,'sine',.025);
+        if(event.milestone){
+          comboPulse=.5;const x=p.x*T+18,y=p.y*T-22;
+          labels.push({x,y,text:'×'+event.multiplier+(event.multiplier===4?' DIAMANTYRA!':' DIAMANTSVIT!'),color:'#ffe3a0',life:1.35,large:true});
+          if(!reducedMotion)rings.push({x:p.x*T+18,y:p.y*T+18,r:10,life:.45,color:'#ffe3a0'});
+          [659,880,1318].forEach((f,i)=>note(f*(event.multiplier/2),.22,'sine',.025,i*.07));
+        }
       }
       if(event.type==='chest'){burst(event.x,event.y,'#f8cd75',22);toast('Förrådskista! +'+event.amount+' diamanter, +'+event.supply+' bloss, +'+event.supply+' hjärtan');chord();}
       if(event.type==='rock'&&rockHint<=0){toast('Hård sten. Tryck på Turboborra för att ta dig igenom.');rockHint=4;}
@@ -217,6 +241,8 @@
     $('#expedition').classList.toggle('nether',p.y>E.GATE_Y);
     setText('threat',p.y>E.GATE_Y?'Något följer dig genom mörkret.':'Något hörde dig. Fortsätt röra dig.');
     setText('gems',p.bag);setText('combo',game.combo>=5?'×'+Math.min(4,1+Math.floor(game.combo/5))+' DIAMANTSVIT':'');
+    elements.combo.classList.toggle('active',game.combo>=5);
+    elements.combo.setAttribute('aria-label',game.combo>=5?'Diamantsvit: '+Math.min(4,1+Math.floor(game.combo/5))+' gånger diamantvärdet':'');
     setText('flare-count',p.flares);elements.flare.disabled=p.flares<1||game.state!=='playing';
     elements.drill.disabled=p.drillCooldown>0||game.state!=='playing';
     setText('drill-label',p.drillCooldown>0?'LADDAR '+p.drillCooldown.toFixed(1)+'s':'REDO');
@@ -363,9 +389,19 @@
     ctx.fillStyle='#292e2c';ctx.fillRect(facing>0?4:-5,-17,2,3);
     ctx.fillStyle='#f1c86d';ctx.beginPath();ctx.arc(0,-23,11,Math.PI,0);ctx.fill();ctx.fillRect(-13,-24,26,5);
     ctx.fillStyle='#fff3c3';ctx.fillRect(facing>0?8:-12,-28,5,7);
-    const swing=moving?Math.sin(clock*20)*.5:0;
-    ctx.save();ctx.translate(facing*12,2);ctx.rotate(facing*(-.3+swing));ctx.strokeStyle='#c2cab7';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(0,8);ctx.lineTo(facing*7,-13);ctx.moveTo(facing*1,-14);ctx.lineTo(facing*16,-9);ctx.stroke();ctx.restore();
-    if(p.drilling){const d=E.DIRS[p.dir];ctx.translate(d.x*23,d.y*23);ctx.rotate(Math.atan2(d.y,d.x));ctx.fillStyle='#fff0af';ctx.beginPath();ctx.moveTo(20,0);ctx.lineTo(-3,-9);ctx.lineTo(-3,9);ctx.fill();}
+    if(!p.drilling){
+      const d=E.DIRS[pickSwing>0?pickDirection:p.dir],swing=reducedMotion?0:Math.sin(pickSwing/.16*Math.PI)*.95;
+      ctx.save();ctx.translate(d.x*13,d.y*13);ctx.rotate(Math.atan2(d.y,d.x)+swing-.45);
+      ctx.strokeStyle='#ad8151';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(-3,7);ctx.lineTo(14,-8);ctx.stroke();
+      ctx.strokeStyle=pickSwing>0?'#fff0c7':'#c2cab7';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(8,-17);ctx.quadraticCurveTo(19,-10,21,0);ctx.stroke();ctx.restore();
+    }
+    if(p.drilling){
+      const d=E.DIRS[p.dir];ctx.translate(d.x*23,d.y*23);ctx.rotate(Math.atan2(d.y,d.x));
+      ctx.strokeStyle='#f5c66b99';ctx.lineWidth=2;
+      for(const side of [-1,1]){ctx.beginPath();ctx.moveTo(-35,side*12);ctx.lineTo(-5,side*12);ctx.stroke();}
+      ctx.fillStyle='#fff0af';ctx.beginPath();ctx.moveTo(23,0);ctx.lineTo(-3,-9);ctx.lineTo(-3,9);ctx.fill();
+      ctx.strokeStyle='#b88b42';ctx.beginPath();for(let i=0;i<3;i++){const offset=reducedMotion?0:clock*35%5;ctx.moveTo(i*6+offset-3,-7+i*2);ctx.lineTo(i*6+offset+1,7-i*2);}ctx.stroke();
+    }
     ctx.restore();
   }
   function draw() {
@@ -382,7 +418,15 @@
     for(const item of game.items.values()) {
       if(item.x<x0||item.x>x1||item.y<y0||item.y>y1||!game.seen[E.key(item.x,item.y)])continue;
       const x=item.x*T+18,y=item.y*T+18;
-      if(item.type==='gem'){ctx.shadowColor='#80e8c6';ctx.shadowBlur=6;diamond(x,y,7+item.value,'#8fefd0');ctx.shadowBlur=0;if(hash(item.x,item.y)>.6&&Math.sin(clock*3+item.x)>.8){ctx.fillStyle='#e7ffe7';ctx.fillRect(x+10,y-10,2,5);ctx.fillRect(x+8,y-8,6,1);}}
+      if(item.type==='gem'){
+        // Mineral threads make nearby branches readable without revealing unseen tiles.
+        ctx.strokeStyle='#80e8c64a';ctx.lineWidth=2;ctx.beginPath();
+        for(const d of [E.DIRS[1],E.DIRS[2]]){
+          const nx=item.x+d.x,ny=item.y+d.y;
+          if(game.seen[E.key(nx,ny)]&&game.items.get(E.key(nx,ny))?.type==='gem'){ctx.moveTo(x,y);ctx.lineTo(x+d.x*T*.5+3,y+d.y*T*.5-3);ctx.lineTo(x+d.x*T,y+d.y*T);}
+        }ctx.stroke();
+        ctx.shadowColor='#80e8c6';ctx.shadowBlur=6;diamond(x,y,7+item.value,'#8fefd0');ctx.shadowBlur=0;if(hash(item.x,item.y)>.6&&Math.sin(clock*3+item.x)>.8){ctx.fillStyle='#e7ffe7';ctx.fillRect(x+10,y-10,2,5);ctx.fillRect(x+8,y-8,6,1);}
+      }
       else if(item.type==='chest'){ctx.fillStyle='#443c25';ctx.fillRect(x-13,y-7,26,22);ctx.fillStyle='#cda969';ctx.fillRect(x-13,y-10,26,13);ctx.fillStyle='#ffe0a0';ctx.fillRect(x-3,y-2,6,7);ctx.strokeStyle='#e9c181';ctx.lineWidth=2;ctx.strokeRect(x-13,y-10,26,25);}
       else{ctx.shadowColor='#f9d591';ctx.shadowBlur=23;diamond(x,y-7+Math.sin(clock*2)*5,17,E.BIOMES[E.biomeAt(item.y)].color);ctx.shadowBlur=0;}
     }
@@ -392,10 +436,15 @@
       const x=f.x*T+18,y=f.y*T+18,g=ctx.createRadialGradient(x,y,4,x,y,150);g.addColorStop(0,'#f4ae6855');g.addColorStop(1,'#e49c5200');ctx.fillStyle=g;ctx.fillRect(x-150,y-150,300,300);
       ctx.fillStyle='#ffde91';ctx.beginPath();ctx.arc(x,y,6+Math.sin(clock*15)*2,0,7);ctx.fill();ctx.fillStyle='#fff6d8';ctx.fillRect(x-2,y-9,4,15);
     }
+    for(const impact of impacts){
+      const d=E.DIRS[impact.dir];ctx.save();ctx.translate(impact.x,impact.y);ctx.rotate(Math.atan2(d.y,d.x));
+      ctx.globalAlpha=impact.life/.22;ctx.strokeStyle=impact.rock?'#fff0c7':'#d9b878';ctx.lineWidth=impact.rock?3:2;
+      ctx.beginPath();ctx.arc(0,0,reducedMotion?16:12+(1-impact.life/.22)*8,-1.1,1.1);ctx.stroke();ctx.restore();
+    }
     drawMiner(px,py);
     for(const effect of particles){ctx.globalAlpha=Math.min(1,effect.life*2);ctx.fillStyle=effect.color;ctx.fillRect(effect.x,effect.y,effect.size,effect.size);}ctx.globalAlpha=1;
     for(const ring of rings){ctx.globalAlpha=ring.life;ctx.strokeStyle=ring.color;ctx.lineWidth=2;ctx.beginPath();ctx.arc(ring.x,ring.y,ring.r,0,7);ctx.stroke();}ctx.globalAlpha=1;
-    for(const label of labels){ctx.globalAlpha=Math.min(1,label.life*2);ctx.fillStyle=label.color;ctx.font='bold 16px Arial';ctx.fillText(label.text,label.x,label.y);}ctx.globalAlpha=1;
+    for(const label of labels){ctx.globalAlpha=Math.min(1,label.life*2);ctx.fillStyle=label.color;ctx.font=label.large?'bold 20px Arial':'bold 16px Arial';ctx.textAlign=label.large?'center':'left';ctx.fillText(label.text,label.x,label.y);}ctx.globalAlpha=1;ctx.textAlign='left';
     // Previously explored edges stay visible; undiscovered caves conceal their inhabitants.
     for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++)if(y>E.SURFACE&&!game.seen[E.key(x,y)]){ctx.fillStyle=y>E.GATE_Y?'#100d19':'#14201c';ctx.fillRect(x*T,y*T,T+1,T+1);}
     ctx.restore();
@@ -416,6 +465,11 @@
   function frame(time) {
     const dt=Math.min(.05,(time-last)/1000);last=time;clock+=dt;
     game.update(dt,direction());events();shake=Math.max(0,shake-dt);rockHint=Math.max(0,rockHint-dt);whisperHint=Math.max(0,whisperHint-dt);
+    pickSwing=Math.max(0,pickSwing-dt);digSoundTimer=Math.max(0,digSoundTimer-dt);haulPulse=Math.max(0,haulPulse-dt);comboPulse=Math.max(0,comboPulse-dt);
+    elements.gems.style.color=haulPulse>0?'#fff3c9':'';
+    elements.combo.style.transform=reducedMotion?'none':'scale('+(1+comboPulse*.25)+')';
+    elements.combo.style.setProperty('--remaining',Math.max(0,game.comboTimer/4));
+    for(const impact of impacts)impact.life-=dt;impacts=impacts.filter(impact=>impact.life>0);
     if(game.state==='playing'&&game.player.y>E.GATE_Y){ambienceTimer-=dt;if(ambienceTimer<=0){note(41,2.5,'sine',.035);note(43,2.2,'sine',.02,.15);ambienceTimer=5;}}
     for(const p of particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=110*dt;p.life-=dt;}particles=particles.filter(p=>p.life>0);
     for(const l of labels){l.y-=26*dt;l.life-=dt;}labels=labels.filter(l=>l.life>0);

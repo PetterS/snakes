@@ -219,7 +219,75 @@ def check(browser, name):
     print(f"PASS {name}: touch tools, multi-pointer steering, cancellation, responsive layouts, sealed/open gate, horror/flare, six relics, victory, upgrades; no page errors")
 
 
+def check_feedback(browser, reduced=False):
+    context = browser.new_context(viewport={"width": 1024, "height": 768},
+                                  device_scale_factor=2, has_touch=True,
+                                  reduced_motion="reduce" if reduced else "no-preference")
+    context.add_init_script(INSTRUMENT)
+    context.add_init_script("""(() => {
+      window.testTones=0;
+      const original=AudioContext.prototype.createOscillator;
+      AudioContext.prototype.createOscillator=function(...args){window.testTones++;return original.apply(this,args);};
+    })();""")
+    page = context.new_page()
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(URL)
+    page.locator("#start").tap()
+    page.evaluate("""() => {
+      const g=testGame;g.snakes=[];g.horrors=[];g.items.clear();
+      Object.assign(g.player,{x:15,y:20,oldX:15,oldY:20,blend:1,dir:1});
+      for(let x=16;x<=40;x++){g.grid[20][x]=1;g.place(x,20,'gem',1);}
+      g.reveal();
+    }""")
+    # Actual movement builds a streak with sound initially disabled.
+    page.keyboard.down("ArrowRight")
+    page.wait_for_function("testGame.combo>=5")
+    page.keyboard.up("ArrowRight")
+    page.wait_for_function("document.querySelector('#combo').textContent.includes('×2')")
+    assert page.evaluate("testTones") == 0
+    page.locator("#sound").tap()
+    page.keyboard.down("ArrowRight")
+    page.wait_for_function("testGame.combo>=15")
+    page.keyboard.up("ArrowRight")
+    page.wait_for_function("document.querySelector('#combo').textContent.includes('×4')")
+    assert page.evaluate("testTones") > 10
+    assert page.locator("#combo").get_attribute("aria-label") == "Diamantsvit: 4 gånger diamantvärdet"
+    suffix = "reduced" if reduced else "normal"
+    page.screenshot(path=f"/tmp/deep-below-chrome-combo-{suffix}.png")
+    if reduced:
+        assert page.locator("#combo").evaluate("e=>getComputedStyle(e).transform") == "none"
+    else:
+        # Pausing freezes the four-second streak, and releasing input stops movement.
+        stopped = page.evaluate("testGame.player.x")
+        page.locator("#pause").tap()
+        remaining = page.evaluate("testGame.comboTimer")
+        page.wait_for_timeout(250)
+        assert page.evaluate("testGame.comboTimer") == remaining
+        assert page.evaluate("testGame.player.x") == stopped
+        page.locator("#resume").tap()
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.screenshot(path="/tmp/deep-below-chrome-combo-phone.png")
+        bounds = page.locator("#combo").bounding_box()
+        assert bounds["x"] >= 0 and bounds["x"] + bounds["width"] <= 390
+        page.wait_for_function("document.querySelector('#combo').textContent===''")
+        assert not page.locator("#combo").evaluate("e=>e.classList.contains('active')")
+        # A rock drill exercises the separate crack sound and larger debris burst.
+        page.evaluate("""() => {
+          const g=testGame,p=g.player;p.drillCooldown=0;
+          for(let x=p.x+1;x<=p.x+6;x++)g.grid[p.y][x]=2;
+        }""")
+        page.locator("#drill").tap()
+        page.wait_for_function("testGame.player.drillCooldown>0 && testGame.player.drilling===0")
+        assert page.evaluate("testGame.player.x") == stopped + 6
+    assert not errors, errors
+    context.close()
+    print(f"PASS feedback ({suffix}): real digging, combo milestones, optional audio, responsive streak meter; no page errors")
+
+
 with sync_playwright() as p:
     # Reuse the browser launched by the user's browser skill. Only our test context closes.
     browser = p.chromium.connect_over_cdp("http://127.0.0.1:9222")
     check(browser, "chrome")
+    check_feedback(browser)
+    check_feedback(browser, reduced=True)

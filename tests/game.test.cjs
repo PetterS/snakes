@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {Game, WIDTH, HEIGHT, SURFACE, GATE_X, GATE_Y, DIRS, key} = require('../engine.js');
+const {Game, WIDTH, HEIGHT, SURFACE, GATE_X, GATE_Y, DIRS, key, biomeAt} = require('../engine.js');
 
 function route(game, start, target) {
   const queue=[start], visited=new Map([[key(start.x,start.y),null]]);
@@ -83,6 +83,7 @@ test('the magic seal resists drilling everywhere and opens only after the three 
 test('hidden relics have no compass location until discovered and nether rewards are larger',()=>{
   const game=new Game(77);game.start();
   for(const r of game.relics.slice(0,3))takeRelic(game,r);
+  game.perks.delete('lantern'); // Check base vision independently of the randomly offered powers.
   assert.equal(game.target().name,'Nattporten');
   Object.assign(game.player,{x:GATE_X,y:GATE_Y+2});game.reveal();
   assert.equal(game.target(),null);assert.equal(game.sight(),6);
@@ -194,4 +195,50 @@ test('new survival powers reveal further and replenish supplies without exceedin
   assert.equal(game.player.hp,5);assert.equal(game.player.flares,12);
   game.player.hp=1;game.player.flares=1;game.collect({x:20,y:110,type:'chest'});
   assert.equal(game.player.hp,3);assert.equal(game.player.flares,3);
+});
+
+test('diamond veins form diggable branches near patrols without inflating biome loot budgets',()=>{
+  class ScatteredGame extends Game {generateVeins() {}}
+  const budget=g=>Array.from({length:6},(_,biome)=>[...g.items.values()].filter(i=>i.type==='gem'&&biomeAt(i.y)===biome).reduce((a,i)=>[a[0]+1,a[1]+i.value],[0,0]));
+  for(let seed=1;seed<=100;seed++) {
+    const game=new Game(seed),original=new ScatteredGame(seed);
+    assert.deepEqual(budget(game),budget(original),`seed ${seed}: changed diamond budget`);
+    assert.deepEqual([...game.items.values()], [...new Game(seed).items.values()],`seed ${seed}: nondeterministic veins`);
+    for(const nether of [false,true]) {
+      const gems=[...game.items.values()].filter(i=>i.type==='gem'&&i.y>9&&(i.y>GATE_Y)===nether);
+      const adjacent=i=>DIRS.filter(d=>game.items.get(key(i.x+d.x,i.y+d.y))?.type==='gem').length;
+      assert.ok(gems.filter(i=>adjacent(i)>0).length/gems.length>.9,`seed ${seed}: scattered gems`);
+      assert.ok(gems.some(i=>adjacent(i)>=3),`seed ${seed}: no branching veins`);
+      assert.ok(gems.filter(i=>game.grid[i.y][i.x]===2).length<4,`seed ${seed}: veins blocked by rock`);
+      for(const snake of game.snakes.filter(s=>s.nether===nether))assert.ok(gems.some(i=>snake.body.some(p=>Math.hypot(p.x-i.x,p.y-i.y)<2)),`seed ${seed}: no temptation near patrol`);
+    }
+    assert.equal(game.items.get(key(29,5)).type,'gem');
+    assert.equal(game.items.get(key(29,9)).type,'chest');
+    assert.equal(game.grid[GATE_Y][GATE_X],4);
+  }
+});
+
+test('combo milestones celebrate each tier once and reset after time or damage',()=>{
+  const game=new Game(73);game.start();game.snakes=[];game.horrors=[];
+  const gem=()=>game.collect({type:'gem',value:1,x:29,y:6});
+  for(let i=0;i<20;i++)gem();
+  const events=game.drainEvents().filter(e=>e.type==='gem');
+  assert.deepEqual(events.filter(e=>e.milestone).map(e=>[e.combo,e.multiplier]),[[5,2],[10,3],[15,4]]);
+  assert.equal(game.player.bag,53);
+  for(let i=0;i<81;i++)game.update(.05);
+  gem();assert.equal(game.combo,1);assert.equal(game.drainEvents().find(e=>e.type==='gem').multiplier,1);
+  for(let i=0;i<4;i++)gem();
+  assert.equal(game.drainEvents().filter(e=>e.milestone).length,1);
+  game.damage();gem();assert.equal(game.combo,1);assert.equal(game.drainEvents().filter(e=>e.milestone).length,0);
+});
+
+test('dig feedback distinguishes earth and rock without changing movement or seal protection',()=>{
+  const game=new Game(74);game.start();game.snakes=[];
+  Object.assign(game.player,{x:20,y:15,dir:1});game.grid[15][21]=1;game.grid[15][22]=2;game.grid[15][23]=0;
+  game.step(1);const earth=game.drainEvents().find(e=>e.type==='dig');
+  assert.deepEqual(earth,{type:'dig',x:21,y:15,dir:1,rock:false,drill:false});
+  assert.equal(game.step(1),false);assert.equal(game.drainEvents().some(e=>e.type==='dig'),false);
+  game.drill();game.step(1);const rock=game.drainEvents().find(e=>e.type==='dig');
+  assert.deepEqual(rock,{type:'dig',x:22,y:15,dir:1,rock:true,drill:true});
+  game.step(1);assert.equal(game.drainEvents().some(e=>e.type==='dig'),false);
 });

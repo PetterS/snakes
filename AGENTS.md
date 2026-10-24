@@ -35,6 +35,8 @@ Load `engine.js` before `game.js`. Keep gameplay rules in the engine and renderi
 - Netherworld snakes are faster, inflict two hearts of damage, and recover from stuns sooner. Each lower relic increases pursuit speed further. Horrors cross walls, mark a fixed attack location for 1.5 seconds, then rush it. They remain below the gate; flares interrupt/repel them and drilling stuns them.
 - The rechargeable drill bursts six tiles in the facing direction, breaks rock, and briefly protects the player. Flares consume charges, immediately stun nearby snakes, and attract others. Never let drilling destroy the seal or closed gate.
 - Collecting diamonds quickly builds a multiplier. Supply chests provide diamonds, one heart, and one flare. Upper relics give 30 diamonds; lower relics give 90. Each also gives healing, a revealed area, and a choice of three expedition powers from a pool of nine.
+- Diamonds form branching, diggable veins leading toward snake patrols, with a small pocket at every patrol. Generation retains each biome's original diamond count and value; the safe opening stays intact. Visible neighbouring gems have mineral threads; unseen gems stay hidden.
+- The four-second diamond streak reaches ×2/×3/×4 at 5/10/15 gems. A meter inside the haul card shows time remaining; each tier triggers one celebration. Dig events distinguish earth/rock and facing direction for pick swings, directional debris, and optional sound. Effects never delay input; reduced-motion mode suppresses the new pulses and expanding combo rings.
 - **Själslykta** expands vision, **Skuggmantel** reduces heavy hits to one heart and extends damage protection, and **Sista glöden** restores health/flares and doubles future chest supplies. Existing powers remain available.
 - Players may return early, including with three to five relics, and press **Säkra fynden** to bank their haul. Collecting all six relics and surfacing ends the expedition automatically. Rescue after defeat saves one quarter of the haul. The gate and all expedition state reset on a new run.
 - Banked diamonds buy permanent pick, drill, and health upgrades, each with three levels. Expedition powers reset on the next run; purchased camp upgrades persist.
@@ -91,7 +93,7 @@ The user asked to close all agent browser windows at the end of this session. Ke
 - GitHub Pages automatically publishes the **repository root of `main`** after a push. A push to `main` is a public deployment, so finish implementation and required checks first.
 - The established workflow is to publish requested game updates after completing them. The user specifically required the expanded game to be translated to Swedish before publishing; that version is now live.
 - Stage intended files explicitly so the untracked README or temporary test artifacts are not accidentally published. Do not force-push.
-- Keep the app's relative asset paths valid under `/snakes/`. HTML currently references assets with `?v=4`; update the cache version together when necessary to prevent an old cached script/style from being mixed with new HTML.
+- Keep the app's relative asset paths valid under `/snakes/`. HTML currently references assets with `?v=5`; update the cache version together when necessary to prevent an old cached script/style from being mixed with new HTML.
 - Verify the Pages build for the pushed commit, not just any previous successful build:
 
 ```sh
@@ -103,3 +105,5 @@ gh api repos/PetterS/snakes/pages/builds/latest --jq '{status,commit,error:.erro
 The expanded Swedish version was published as commit `5d39b96`. At that point all seven simulation tests (including 100 generated worlds) and the Chrome touch/UI suite passed. The original version was confirmed working on the user's iPad; physical iPad testing of the expanded version has not been established here.
 
 The Nattporten expansion passes 14 simulation tests, including 100 seeded worlds with sealed/open gate reachability, a full six-relic expedition, partial banking, stronger snakes, horror telegraphs, and flare/drill defenses. Chrome checks also cover entering and returning through the gate, hidden relic discovery, horror interruption, six choices, victory, new-run resets, and the existing touch/UI cases. This is still Chrome verification, not physical iPad testing.
+
+The diamond-vein and digging-feedback pass adds three simulation tests (17 total), covering loot budgets and branching veins over 100 seeds, combo milestones/resets, and earth/rock dig events. Chrome also checks real movement through combo tiers, optional audio, pause/expiry, rock drilling, the narrow-screen combo meter, and reduced-motion mode. Tactical snake layouts, danger pacing, and traceable hidden relics remain ideas the user wants to try next.

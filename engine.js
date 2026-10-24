@@ -77,6 +77,44 @@
       [[29,5],[29,6],[30,6],[31,7],[27,8]].forEach(([x,y])=>this.place(x,y,'gem',1));
       this.items.delete(key(29,9));this.place(29,9,'chest');
       this.generateNether();
+      this.generateVeins();
+    }
+    generateVeins() {
+      // Reshape deposits after rooms and patrols exist, keeping each biome's loot budget.
+      const bands=[[10,31],[32,61],[62,GATE_Y-1],[GATE_Y+2,123],[124,153],[154,HEIGHT-2]];
+      for(let biome=0;biome<bands.length;biome++) {
+        const [top,bottom]=bands[biome],pool=[];
+        for(const [k,item] of this.items)if(item.type==='gem'&&item.y>=top&&item.y<=bottom){pool.push(item);this.items.delete(k);}
+        const patrols=this.snakes.filter(s=>s.biome===biome);
+        const deposit=(x,y)=>{
+          if(!pool.length||x<2||x>WIDTH-3||y<top||y>bottom||this.items.has(key(x,y)))return;
+          const item=pool.pop();this.place(x,y,'gem',item.value);
+          // A vein can be followed with the pick; surrounding rock still rewards drilling.
+          if(this.grid[y][x]===2)this.grid[y][x]=1;
+        };
+        // Reserve a small pocket at every patrol before spending the rest on long seams.
+        for(const snake of patrols)for(const p of snake.body.filter(p=>p.y>=top&&p.y<=bottom).slice(0,3))deposit(p.x,p.y);
+        for(let attempt=0;pool.length&&patrols.length&&attempt<120;attempt++) {
+          const snake=patrols[attempt%patrols.length],end=snake.body[Math.floor(this.random()*snake.body.length)];
+          const side=this.random()<.5?-1:1;
+          let x=Math.max(2,Math.min(WIDTH-3,end.x+side*(8+Math.floor(this.random()*7))));
+          let y=Math.max(top,Math.min(bottom,end.y+(this.random()<.5?-1:1)*(3+Math.floor(this.random()*5))));
+          const target={x:end.x,y:Math.max(top,Math.min(bottom,end.y))},path=[];
+          while(x!==target.x||y!==target.y) {
+            path.push({x,y});deposit(x,y);
+            if(x!==target.x&&(y===target.y||this.random()<.7))x+=Math.sign(target.x-x);
+            else y+=Math.sign(target.y-y);
+          }
+          deposit(x,y);
+          // A fork midway offers one more detour while the main seam reaches the patrol.
+          const fork=path[Math.floor(path.length/2)];
+          if(fork){const direction=this.random()<.5?-1:1;for(let j=1;j<=4;j++)deposit(fork.x,fork.y+direction*j);}
+          for(const d of DIRS)deposit(x+d.x,y+d.y);
+        }
+        // Crowded seeds use free original slots, then any remaining space in the biome.
+        for(const item of [...pool])deposit(item.x,item.y);
+        for(let y=top;pool.length&&y<=bottom;y++)for(let x=2;pool.length&&x<WIDTH-2;x++)deposit(x,y);
+      }
     }
     generateNether() {
       // Small caves, denser stone, and wandering diggable routes beyond the seal.
@@ -166,9 +204,10 @@
     collect(item) {
       if(!item)return;this.items.delete(key(item.x,item.y));const p=this.player;
       if(item.type==='gem') {
+        const previousMultiplier=this.comboTimer>0?Math.min(4,1+Math.floor(this.combo/5)):1;
         this.combo=this.comboTimer>0?this.combo+1:1;this.comboTimer=4;this.maxCombo=Math.max(this.maxCombo,this.combo);
         const multiplier=Math.min(4,1+Math.floor(this.combo/5));const amount=item.value*multiplier*(this.perks.has('rich')?2:1);
-        p.bag+=amount;this.emit('gem',{x:item.x,y:item.y,amount,multiplier,combo:this.combo});
+        p.bag+=amount;this.emit('gem',{x:item.x,y:item.y,amount,multiplier,combo:this.combo,milestone:multiplier>previousMultiplier});
       } else if(item.type==='chest') {
         const amount=5+biomeAt(item.y)*5,supply=this.perks.has('supplies')?2:1;p.bag+=amount;p.flares=Math.min(12,p.flares+supply);p.hp=Math.min(p.maxHp,p.hp+supply);
         this.emit('chest',{x:item.x,y:item.y,amount,supply});
@@ -199,7 +238,7 @@
       if(x<1||x>=WIDTH-1||y<SURFACE||y>=HEIGHT-1)return false;
       if(this.grid[y][x]>=3){this.emit('sealed',{gate:x===GATE_X});return false;}
       if(this.grid[y][x]===2&&!p.drilling){this.emit('rock');return false;}
-      if(this.grid[y][x]!==0){this.grid[y][x]=0;if(!this.perks.has('quiet'))this.noise=1.2;this.emit('dig',{x,y,drill:p.drilling>0});}
+      if(this.grid[y][x]!==0){const rock=this.grid[y][x]===2;this.grid[y][x]=0;if(!this.perks.has('quiet'))this.noise=1.2;this.emit('dig',{x,y,dir,rock,drill:p.drilling>0});}
       p.oldX=p.x;p.oldY=p.y;p.x=x;p.y=y;p.blend=0;this.deepest=Math.max(this.deepest,(y-SURFACE)*2);
       if(p.drilling){p.drilling--;this.snakes.forEach(s=>{if(s.body.some(b=>distance(b,p)<2))s.stun=s.nether?1.8:3;});this.horrors.forEach(h=>{if(distance(h,p)<2){h.stun=5;h.charge=0;h.rush=0;h.target=null;}});}
       if(y>GATE_Y&&!this.enteredNether){this.enteredNether=true;this.emit('nether');}
