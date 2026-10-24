@@ -88,6 +88,8 @@
       '<p>De första tre relikerna öppnar Nattporten vid grottans botten. Tre till ligger gömda i dödsriket. För hem alla sex, eller återvänd tidigare och säkra dina fynd.</p>'+
       '<p>I dödsriket tar bett två hjärtan. Fasor går genom väggar: lämna den röda ringen innan de anfaller. Bloss driver bort dem, borren bedövar dem. Kistor ger hjärtan och bloss.</p>'+
       '<p>Följ diamantådrorna. Samla utan fyra sekunders uppehåll för att nå dubbelt, tredubbelt och fyrdubbelt värde. Men ådrorna leder ofta mot ormarna.</p>'+
+      '<p>Ormar stannar upp när de hör dig. Bryt sikten och sluta gräva så söker de vid ditt senaste spår. Ta sidotunneln, följ svansen eller borra genom den guldspruckna stenen.</p>'+
+      '<p>Lyktornas ljuscirklar är trygga viloplatser. I dödsriket visar bleka fjädrar, ögonristningar och glödande sprickor vägen till gömda reliker.</p>'+
       '<div class="run-perks">'+[...game.perks].map(id=>E.PERKS.find(p=>p.id===id).name).join(' · ')+'</div>'+
       '<button id="resume" class="primary">Fortsätt utforska</button>');
     $('#resume').addEventListener('click',()=>{unlockAudio();game.resume();hidePanel();});
@@ -147,8 +149,12 @@
       if(event.type==='rock'&&rockHint<=0){toast('Hård sten. Tryck på Turboborra för att ta dig igenom.');rockHint=4;}
       if(event.type==='sealed'&&rockHint<=0){toast(event.gate?'Nattporten är förseglad. Hämta de tre relikerna ovanför.':'En uråldrig försegling. Bara Nattporten släpper dig igenom.',5);rockHint=4;}
       if(event.type==='gate'){shake=.5;note(55,1.5,'triangle',.06);}
-      if(event.type==='nether'){toast('Dödsriket. Relikerna är dolda. Bloss driver bort fasorna; lämna deras röda ringar.',8);note(46,2,'sine',.07);}
+      if(event.type==='nether'){toast('Dödsriket. Följ spåren i berget till dolda reliker. Bloss driver bort fasorna; lämna deras röda ringar.',8);note(46,2,'sine',.07);}
       if(event.type==='discovery')toast('I mörkret glimmar '+event.name+'. Platsen är markerad på kartan.',5);
+      if(event.type==='trail'){chapterTimer=0;$('#chapter').style.opacity=0;toast(E.TRAILS[event.index].hint,7);note(440+event.index*110,.7,'sine',.025);}
+      if(event.type==='refuge'){chapterTimer=0;$('#chapter').style.opacity=0;toast(event.name+'. Inne i ljuscirkeln når varken ormar eller fasor dig. Hämta andan.',6);note(330,.9,'sine',.025);note(494,.9,'sine',.02,.15);}
+      if(event.type==='tactics')toast('Ormen vaktar passagen. Ta en sidotunnel, locka bort den med bloss eller borra genom den guldspruckna stenen.',7);
+      if(event.type==='snake-notice'&&game.seen[E.key(event.x,event.y)]&&Math.hypot(event.x-p.x,event.y-p.y)<10)note(130,.2,'triangle',.018);
       if(event.type==='whisper'){
         chapterTimer=0;$('#chapter').style.opacity=0;
         if(whisperHint<=0){toast('En fasa siktar på dig. Lämna den röda ringen!',3);note(68,.8,'sawtooth',.015);whisperHint=5;}
@@ -237,9 +243,11 @@
     setText('relics','◆'.repeat(upper)+'◇'.repeat(3-upper)+(game.gate.open?' · '+'◆'.repeat(lower)+'◇'.repeat(3-lower):''));
     elements.relics.setAttribute('aria-label',p.relics+' av '+(game.gate.open?6:3)+' reliker');
     if(target){const dx=target.x-p.x,dy=target.y-p.y,arrow=Math.abs(dx)>Math.abs(dy)?(dx>0?'→':'←'):(dy>0?'↓':'↑');setText('objective',arrow+' '+target.name+' · '+Math.round(Math.hypot(dx,dy)*2)+'m');}
-    else setText('objective','Utforska mörkret · '+(6-p.relics)+' reliker dolda');
+    else {const clue=game.nearbyClue();setText('objective',clue?'Reliker dolda · följ '+E.TRAILS[clue.relic-3].name:'Utforska mörkret · '+(6-p.relics)+' reliker dolda');}
     $('#expedition').classList.toggle('nether',p.y>E.GATE_Y);
-    setText('threat',p.y>E.GATE_Y?'Något följer dig genom mörkret.':'Något hörde dig. Fortsätt röra dig.');
+    const refuge=game.refugeAt(p),snakes=game.snakes.filter(s=>s.alert&&s.stun<=0&&Math.hypot(s.body[0].x-p.x,s.body[0].y-p.y)<12);
+    setText('threat',refuge?refuge.name+' · Här är du trygg.':snakes.some(s=>s.notice>0)?'Ormen lyssnar. Välj din väg.':snakes.some(s=>s.mode==='hunt')?'Ormen ser dig. Bryt sikten eller tänd ett bloss.':snakes.length?'Ormen söker vid ditt senaste spår.':'Något följer dig genom mörkret.');
+    elements.threat.classList.toggle('calm',!!refuge);
     setText('gems',p.bag);setText('combo',game.combo>=5?'×'+Math.min(4,1+Math.floor(game.combo/5))+' DIAMANTSVIT':'');
     elements.combo.classList.toggle('active',game.combo>=5);
     elements.combo.setAttribute('aria-label',game.combo>=5?'Diamantsvit: '+Math.min(4,1+Math.floor(game.combo/5))+' gånger diamantvärdet':'');
@@ -249,7 +257,7 @@
     const maximum=Math.max(2.4,7-saved.upgrades.boots)*(game.perks.has('drill')?.5:1);
     elements.recharge.style.width=(1-p.drillCooldown/maximum)*100+'%';
     elements.bank.classList.toggle('hidden',!(game.state==='playing'&&p.y===E.SURFACE&&p.bag>0));
-    elements.threat.classList.toggle('hidden',!game.threat||game.state!=='playing');
+    elements.threat.classList.toggle('hidden',(!game.threat&&!refuge)||game.state!=='playing');
   }
   function drawMap() {
     if(!mapOpen)return;const nether=game.player.y>E.GATE_Y,start=nether?E.GATE_Y:0,end=nether?E.HEIGHT:E.GATE_Y+1,sy=192/(end-start);
@@ -259,6 +267,7 @@
       mctx.fillStyle=y<=E.SURFACE?'#6d9364':game.grid[y][x]>=3?'#6c537f':game.grid[y][x]===0?(nether?'#817190':'#8b9871'):E.BIOMES[E.biomeAt(y)].soil[0];mctx.fillRect(x*2,(y-start)*sy,2,Math.ceil(sy));
     }
     for(const r of game.relics){if(r.y<start||r.y>=end||(r.hidden&&!r.discovered))continue;mctx.fillStyle=r.taken?'#87946b':'#f6cc7d';mctx.save();mctx.translate(r.x*2+1,(r.y-start)*sy+1);mctx.rotate(Math.PI/4);mctx.fillRect(-2,-2,4,4);mctx.restore();}
+    for(const r of game.refuges)if(r.y>=start&&r.y<end&&game.seen[E.key(r.x,r.y)]){mctx.strokeStyle='#c7eab3';mctx.lineWidth=1;mctx.beginPath();mctx.arc(r.x*2+1,(r.y-start)*sy+1,3,0,7);mctx.stroke();}
     mctx.fillStyle=game.gate.open?'#e9b9ff':'#9d6a99';mctx.fillRect(E.GATE_X*2-3,(E.GATE_Y-start)*sy,8,3);
     const p=game.player;mctx.fillStyle='#fff6ce';mctx.beginPath();mctx.arc(p.x*2+1,(p.y-start)*sy+1,2.5,0,7);mctx.fill();
   }
@@ -282,6 +291,7 @@
       if(game.grid[y]?.[x-1]===0){ctx.fillStyle='#00000040';ctx.fillRect(xx,yy,4,T);}
       ctx.fillStyle='#d8bb8333';ctx.fillRect(xx+4+n*18,yy+8,3,2);ctx.fillRect(xx+24,yy+25,2,2);
       if(type===2||n>.67){ctx.strokeStyle=type===2?'#b6c1b177':'#1a1e174a';ctx.lineWidth=type===2?2:1;ctx.beginPath();ctx.moveTo(xx+8,yy+3);ctx.lineTo(xx+15,yy+13);ctx.lineTo(xx+11,yy+20);ctx.lineTo(xx+25,yy+30);ctx.stroke();}
+      if(type===2&&game.shortcuts.has(E.key(x,y))){ctx.strokeStyle='#f6cd80';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(xx+19,yy+3);ctx.lineTo(xx+12,yy+16);ctx.lineTo(xx+23,yy+19);ctx.lineTo(xx+16,yy+33);ctx.stroke();}
     } else {
       ctx.fillStyle=b.floor;ctx.fillRect(xx,yy,T+1,T+1);
       ctx.fillStyle='#aaa47822';ctx.fillRect(xx+7+n*10,yy+26,3,2);
@@ -310,6 +320,38 @@
       for(const side of [-1,1]){ctx.fillStyle='#71816a';ctx.fillRect(x+side*95-7,y-40,14,75);ctx.fillStyle='#98a58a';ctx.fillRect(x+side*95-11,y-43,22,8);ctx.fillStyle=color;ctx.fillRect(x+side*95-2,y-27,4,16);}
       ctx.fillStyle='#7c8465';ctx.fillRect(x-19,y+10,38,9);ctx.fillRect(x-13,y+4,26,8);
       if(!r.taken){const glow=ctx.createRadialGradient(x,y,5,x,y,100);glow.addColorStop(0,color+'30');glow.addColorStop(1,color+'00');ctx.fillStyle=glow;ctx.fillRect(x-100,y-100,200,200);}
+    }
+  }
+  function drawRefuges() {
+    for(const r of game.refuges){
+      if(!game.seen[E.key(r.x,r.y)])continue;
+      const x=r.x*T+18,y=r.y*T+18,radius=r.radius*T;
+      if(x<camera.x-radius||x>camera.x+width+radius||y<camera.y-radius||y>camera.y+height+radius)continue;
+      ctx.save();ctx.translate(x,y);
+      const glow=ctx.createRadialGradient(0,0,8,0,0,radius+20);glow.addColorStop(0,'#eed7a34d');glow.addColorStop(.75,'#badca51c');glow.addColorStop(1,'#badca500');ctx.fillStyle=glow;ctx.fillRect(-radius-20,-radius-20,radius*2+40,radius*2+40);
+      ctx.strokeStyle='#c6e8b8b0';ctx.lineWidth=2;ctx.setLineDash([8,9]);ctx.beginPath();ctx.arc(0,0,radius,0,7);ctx.stroke();ctx.setLineDash([]);
+      for(let i=0;i<8;i++){const a=i*Math.PI/4;ctx.fillStyle='#d6e4ac';ctx.fillRect(Math.cos(a)*radius-3,Math.sin(a)*radius-3,6,6);}
+      ctx.fillStyle='#4d5442';ctx.fillRect(-3,-48,6,48);ctx.fillStyle='#ddc18c';ctx.fillRect(-12,-54,24,5);ctx.fillRect(-10,-49,20,22);ctx.fillStyle='#fff0ba';ctx.fillRect(-6,-46,12,15);
+      ctx.fillStyle='#dceaca';ctx.font='bold 12px Arial';ctx.textAlign='center';ctx.fillText(r.name.toUpperCase(),0,-radius-15);
+      ctx.font='10px Arial';ctx.fillText('VILOPLATS',0,radius+20);ctx.restore();
+    }
+  }
+  function drawClues() {
+    for(const clue of game.clues){
+      if(game.relics[clue.relic].taken||!game.seen[E.key(clue.x,clue.y)])continue;
+      const x=clue.x*T+18,y=clue.y*T+18;
+      if(x<camera.x-T||x>camera.x+width+T||y<camera.y-T||y>camera.y+height+T)continue;
+      const trail=E.TRAILS[clue.relic-3],d=E.DIRS[clue.dir];
+      ctx.save();ctx.translate(x,y);ctx.rotate(Math.atan2(d.y,d.x));
+      ctx.globalAlpha=reducedMotion?.8:.7+Math.sin(clock*1.8+clue.x*.3)*.12;
+      const glow=ctx.createRadialGradient(0,0,1,0,0,17+clue.strength*10);glow.addColorStop(0,trail.color+'40');glow.addColorStop(1,trail.color+'00');ctx.fillStyle=glow;ctx.fillRect(-28,-28,56,56);
+      ctx.strokeStyle=trail.color;ctx.lineWidth=1.7+clue.strength;ctx.beginPath();
+      if(clue.relic===3){
+        ctx.moveTo(-9,2);ctx.lineTo(11,-1);for(let j=-6;j<=3;j+=4){ctx.moveTo(j,1);ctx.lineTo(j-3,-6);ctx.moveTo(j,1);ctx.lineTo(j-4,6);}
+      } else if(clue.relic===4){
+        ctx.moveTo(-11,0);ctx.quadraticCurveTo(0,-13,11,0);ctx.quadraticCurveTo(0,13,-11,0);ctx.moveTo(5,-3);ctx.lineTo(5,3);
+      } else {ctx.moveTo(-12,4);ctx.lineTo(-4,-3);ctx.lineTo(1,3);ctx.lineTo(11,-1);ctx.moveTo(-4,-3);ctx.lineTo(-5,-9);}
+      ctx.stroke();ctx.fillStyle=trail.color;ctx.beginPath();ctx.moveTo(14,0);ctx.lineTo(9,-3);ctx.lineTo(9,3);ctx.fill();ctx.restore();
     }
   }
   function drawGate() {
@@ -373,7 +415,11 @@
     ctx.fillStyle=s.alert?'#ffebad':'#e9df9f';ctx.beginPath();ctx.arc(9,-8,4,0,7);ctx.arc(9,8,4,0,7);ctx.fill();ctx.fillStyle='#18271e';ctx.fillRect(9,-11,2,6);ctx.fillRect(9,5,2,6);
     if(Math.sin(clock*7)>0){ctx.strokeStyle='#e9a388';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(20,0);ctx.lineTo(29,0);ctx.lineTo(34,-4);ctx.moveTo(29,0);ctx.lineTo(34,4);ctx.stroke();}ctx.restore();
     if(s.stun>0){ctx.fillStyle='#e1f6b7';ctx.font='17px Georgia';for(let i=0;i<3;i++)ctx.fillText('✦',h.x+Math.cos(clock*3+i*2.1)*24-6,h.y-24+Math.sin(clock*3+i*2.1)*7);}
-    else if(s.alert){ctx.fillStyle='#ffb696';ctx.font='bold 17px Arial';ctx.fillText('!',h.x-3,h.y-25);}
+    else if(s.notice>0){
+      ctx.strokeStyle='#f7d48a';ctx.lineWidth=2;ctx.beginPath();ctx.arc(h.x,h.y,28,reducedMotion?0:-Math.PI/2,reducedMotion?Math.PI*2:-Math.PI/2+Math.min(1,s.notice/(s.nether?.5:.7))*Math.PI*2);ctx.stroke();
+      ctx.fillStyle='#ffe2a1';ctx.font='bold 19px Arial';ctx.fillText('!',h.x-3,h.y-34);
+    } else if(s.alert){ctx.fillStyle=s.mode==='search'?'#e4ce96':'#ffb696';ctx.font='bold 17px Arial';ctx.fillText(s.mode==='search'?'?':'!',h.x-3,h.y-25);}
+    else if(s.mode==='lured'){ctx.fillStyle='#ffd397';ctx.font='18px Arial';ctx.fillText('✦',h.x-7,h.y-25);}
   }
   function drawMiner(px,py) {
     const p=game.player,moving=p.blend<1,walk=moving?Math.sin(clock*23)*3:0,facing=p.dir===3?-1:1;
@@ -414,7 +460,7 @@
     ctx.translate(-camera.x+shakeX,-camera.y+shakeY);
     const x0=Math.max(0,Math.floor(camera.x/T)-1),x1=Math.min(E.WIDTH,Math.ceil((camera.x+width)/T)+1),y0=Math.max(0,Math.floor(camera.y/T)-1),y1=Math.min(E.HEIGHT,Math.ceil((camera.y+height)/T)+1);
     for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++)tile(x,y);
-    if(y0<5)campDrawing();temples();drawGate();
+    if(y0<5)campDrawing();temples();drawGate();drawRefuges();drawClues();
     for(const item of game.items.values()) {
       if(item.x<x0||item.x>x1||item.y<y0||item.y>y1||!game.seen[E.key(item.x,item.y)])continue;
       const x=item.x*T+18,y=item.y*T+18;
@@ -448,7 +494,7 @@
     // Previously explored edges stay visible; undiscovered caves conceal their inhabitants.
     for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++)if(y>E.SURFACE&&!game.seen[E.key(x,y)]){ctx.fillStyle=y>E.GATE_Y?'#100d19':'#14201c';ctx.fillRect(x*T,y*T,T+1,T+1);}
     ctx.restore();
-    const nether=p.y>E.GATE_Y,lit=game.flares.some(f=>Math.hypot(f.x-p.x,f.y-p.y)<f.radius),radius=nether?(game.perks.has('lantern')?320:240)+(lit?100:0):Math.max(330,width*.65);
+    const nether=p.y>E.GATE_Y,lit=!!game.refugeAt(p)||game.flares.some(f=>Math.hypot(f.x-p.x,f.y-p.y)<f.radius),radius=nether?(game.perks.has('lantern')?320:240)+(lit?100:0):Math.max(330,width*.65);
     const glow=ctx.createRadialGradient(px-camera.x,py-camera.y,nether?45:70,px-camera.x,py-camera.y,radius);
     glow.addColorStop(0,nether?'#08051200':'#07161000');glow.addColorStop(1,nether?'#080512e8':'#071610b0');ctx.fillStyle=glow;ctx.fillRect(0,0,width,height);
     // Attack telegraphs stay readable even at the edge of the lamp's light.

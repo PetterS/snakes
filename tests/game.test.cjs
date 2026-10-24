@@ -129,7 +129,11 @@ test('snakes investigate freshly dug tunnels and stay underground',()=>{
   for(let x=10;x<=35;x++)game.grid[12][x]=0;
   const snake={body:[{x:20,y:12},{x:19,y:12},{x:18,y:12}],previous:[],dir:1,stun:0,timer:0,interval:.3};
   game.player.x=28;game.player.y=12;game.noise=2;game.snakes=[snake];game.snakeStep(snake);
-  assert.equal(snake.body[0].x,21);assert.equal(snake.alert,true);
+  assert.equal(snake.body[0].x,20);assert.equal(snake.alert,true);assert.ok(snake.notice>=.7);
+  for(let i=0;i<10;i++)game.update(.05);
+  assert.equal(snake.body[0].x,20,'a newly alerted snake gives time to react');
+  for(let i=0;i<10;i++)game.update(.05);
+  assert.ok(snake.body[0].x>20);
   game.player.invincible=1000;
   for(let i=0;i<4000;i++)game.update(.05);
   for(const p of snake.body){assert.equal(game.grid[p.y][p.x],0);assert.ok(p.y>SURFACE+2);}
@@ -241,4 +245,110 @@ test('dig feedback distinguishes earth and rock without changing movement or sea
   game.drill();game.step(1);const rock=game.drainEvents().find(e=>e.type==='dig');
   assert.deepEqual(rock,{type:'dig',x:22,y:15,dir:1,rock:true,drill:true});
   game.step(1);assert.equal(game.drainEvents().some(e=>e.type==='dig'),false);
+});
+
+test('100 worlds have flanking routes, drill shortcuts, protected rest stops, and followable relic trails',()=>{
+  for(let seed=1;seed<=100;seed++){
+    const game=new Game(seed);game.start();game.snakes=[];game.horrors=[];
+    assert.equal(game.refuges.length,4,`seed ${seed}: missing rest stop`);
+    for(const r of game.refuges){
+      assert.equal(game.items.get(key(r.x,r.y))?.type,'chest',`seed ${seed}: missing refuge supplies`);
+      assert.ok(route(game,r,game.relics[r.after]),`seed ${seed}: isolated refuge`);
+      for(let y=r.y-3;y<=r.y+3;y++)for(let x=r.x-3;x<=r.x+3;x++)if(game.refugeAt({x,y}))assert.equal(game.grid[y][x],0);
+    }
+    for(const k of game.shortcuts)assert.equal(game.grid[Math.floor(k/WIDTH)][k%WIDTH],2,'veins must not remove drill shortcuts');
+    for(const [i,entry] of game.encounters.entries()){
+      const r=game.relics[i];
+      for(const side of [-4,4]){
+        for(let y=entry.y;y<=r.y;y++)assert.equal(game.grid[y][r.x+side],0);
+        assert.ok(route(game,entry,r),'either side of the ridge must work without drilling');
+      }
+      Object.assign(game.player,{x:entry.x,y:entry.y,dir:2,drillCooldown:0});game.drill();
+      for(let j=0;j<6;j++)assert.ok(game.step(2));
+      assert.equal(game.player.y,r.y-1,'one drill crosses the whole ridge');
+      game.player.drilling=0;
+    }
+    for(let i=3;i<6;i++){
+      const clues=game.clues.filter(c=>c.relic===i),r=game.relics[i],start=i===3?{x:GATE_X,y:GATE_Y+3}:game.relics[i-1];
+      assert.ok(clues.length>=4,`seed ${seed}: missing trail ${i}`);
+      assert.deepEqual({x:clues[0].x,y:clues[0].y},{x:start.x,y:start.y});
+      assert.equal(new Set(clues.map(c=>key(c.x,c.y))).size,clues.length,'trail must not double back onto itself');
+      for(const [j,c] of clues.entries()){
+        assert.ok(c.y>GATE_Y&&game.grid[c.y][c.x]<2);
+        const d=DIRS[c.dir];assert.ok(d&&game.grid[c.y+d.y][c.x+d.x]<2,'marks point along a diggable route');
+        if(j){assert.ok(Math.abs(c.x-clues[j-1].x)+Math.abs(c.y-clues[j-1].y)<=3,'next clue stays within lamp range');}
+      }
+      const last=clues.at(-1);assert.ok(Math.abs(last.x-r.x)+Math.abs(last.y-r.y)<=3);
+    }
+  }
+});
+
+test('clues guide exploration without disclosing relic coordinates and reset on a new run',()=>{
+  const game=new Game(765);game.start();game.snakes=[];game.horrors=[];
+  for(const r of game.relics.slice(0,3))takeRelic(game,r);
+  game.perks.clear();game.drainEvents();
+  Object.assign(game.player,{x:GATE_X,y:GATE_Y+2});game.step(2);
+  assert.ok(game.nearbyClue());assert.equal(game.target(),null);
+  assert.equal(game.relics[3].discovered,undefined);assert.ok(game.relics[3].trailFound);
+  assert.equal(game.drainEvents().filter(e=>e.type==='trail').length,1);
+  game.step(0);game.step(2);assert.equal(game.drainEvents().filter(e=>e.type==='trail').length,0);
+  const r=game.relics[3];for(const dir of route(game,game.player,r))game.step(dir);
+  assert.ok(r.discovered);assert.ok(r.taken);assert.equal(game.nearbyClue()?.relic,4);
+  const fresh=new Game(765);assert.ok(fresh.relics.every(r=>!r.trailFound&&!r.discovered));assert.ok(fresh.refuges.every(r=>!r.visited));
+});
+
+test('a clue trail can briefly climb when rock blocks every downward approach',()=>{
+  const game=new Game(766);game.refuges=[];game.clues=[];
+  game.grid=Array.from({length:HEIGHT},()=>Array(WIDTH).fill(2));
+  game.grid[GATE_Y].fill(3);game.grid[GATE_Y+3][GATE_X]=0;
+  for(let x=GATE_X;x<=33;x++)game.grid[GATE_Y+2][x]=0;
+  for(let y=GATE_Y+2;y<=168;y++)game.grid[y][33]=0;
+  for(let i=3;i<6;i++)Object.assign(game.relics[i],{x:33,y:112+(i-3)*28});
+  game.generateClues();const first=game.clues.filter(c=>c.relic===3);
+  assert.ok(first.length>=7);assert.equal(first[0].dir,0);assert.ok(game.clues.every(c=>c.y>GATE_Y));
+  assert.ok(Math.abs(first.at(-1).x-33)+Math.abs(first.at(-1).y-112)<=3);
+});
+
+test('snakes remember a heard position, lose sight around corners, and give up even after the gate opens',()=>{
+  const game=new Game(12);game.start();game.refuges=[];game.snakes=[];
+  game.grid=Array.from({length:HEIGHT},()=>Array(WIDTH).fill(1));
+  for(let x=10;x<=35;x++)game.grid[12][x]=0;
+  for(let y=12;y<=16;y++)game.grid[y][28]=0;
+  const s={body:[{x:20,y:12},{x:19,y:12},{x:18,y:12}],previous:[],dir:1,stun:0,timer:0,interval:.3,notice:0};
+  Object.assign(game.player,{x:28,y:12,relics:6});game.makeNoise(28,12,1.2);game.snakeStep(s);
+  assert.deepEqual(s.memory,{x:28,y:12});assert.ok(s.notice>0);
+  Object.assign(game.player,{x:28,y:16});game.noise=0;s.notice=0;
+  assert.equal(game.clearSight(s.body[0],game.player),false);
+  game.snakeStep(s);assert.equal(s.mode,'search');assert.deepEqual(s.memory,{x:28,y:12});
+  game.time=4;game.snakeStep(s);assert.equal(s.memory,null);assert.equal(s.alert,false);
+  game.perks.add('quiet');Object.assign(game.player,{x:28,y:15});game.grid[16][28]=1;game.step(2);
+  assert.equal(game.noise,0);game.snakeStep(s);assert.equal(s.alert,false,'quiet digging must remain useful after three relics');
+});
+
+test('a flare draws a pursuing snake away from the player before stunning it',()=>{
+  const game=new Game(19);game.start();game.refuges=[];
+  for(let x=5;x<=35;x++)game.grid[12][x]=0;
+  const s={body:[{x:20,y:12},{x:21,y:12},{x:22,y:12}],previous:[],dir:3,stun:0,timer:0,interval:.3,alert:true,notice:0,memory:{x:29,y:12},memoryUntil:10};
+  Object.assign(game.player,{x:29,y:12});game.flares=[{x:10,y:12,radius:6,life:9}];
+  game.snakeStep(s);assert.equal(s.body[0].x,19);assert.equal(s.mode,'lured');assert.equal(s.alert,false);assert.equal(s.memory,null);
+  for(let i=0;i<7&&s.stun===0;i++)game.snakeStep(s);
+  assert.ok(s.stun>0);
+});
+
+test('refuge light excludes snakes and rushing horrors, interrupts attacks, and never heals repeatedly',()=>{
+  const game=new Game(20);game.start();game.gate.open=true;game.items.clear();
+  const refuge={x:25,y:120,radius:3,name:'Viloplats',visited:false};game.refuges=[refuge];
+  for(let y=110;y<=130;y++)for(let x=10;x<=40;x++)game.grid[y][x]=0;
+  const s={body:[{x:29,y:120},{x:30,y:120},{x:31,y:120}],previous:[],dir:3,stun:0,timer:0,interval:.3,nether:true,alert:true};game.snakes=[s];
+  const h={x:29,y:120,stun:0,charge:1,rush:0,cooldown:0,target:{x:25,y:120}};game.horrors=[h];
+  Object.assign(game.player,{x:25,y:119,hp:2,invincible:0});game.step(2);
+  assert.equal(game.drainEvents().filter(e=>e.type==='refuge').length,1);
+  for(let i=0;i<300;i++)game.update(.05);
+  assert.equal(game.player.hp,2);assert.equal(game.threat,false);assert.equal(h.charge,0);assert.equal(h.rush,0);assert.equal(h.target,null);
+  assert.ok(s.body.every(p=>!game.refugeAt(p)));assert.equal(game.refugeAt(h),null);
+  game.step(0);game.step(2);assert.equal(game.drainEvents().filter(e=>e.type==='refuge').length,0);
+  // A rush aimed beyond the refuge must stop at the light instead of cutting across it.
+  Object.assign(game.player,{x:20,y:120});Object.assign(h,{x:29,y:120,charge:0,rush:2,target:{x:20,y:120}});
+  for(let i=0;i<30;i++){game.horrorStep(h,.05);assert.equal(game.refugeAt(h),null);}
+  assert.equal(h.rush,0);
 });

@@ -33,6 +33,7 @@ button:active:not(:disabled){transform:translateY(1px)}
 .nether .location .eyebrow{color:#ddb8e5}.nether .map-wrap{background:#180f24e6}
 .nether .mission{background:var(--glass)}.nether .overlay{background:#160b24b8}
 .nether .toast{background:#281930f2;border-color:#bb87bb88}.nether .threat{color:#ffb5d3}
+.threat.calm,.nether .threat.calm{color:#d1edb8}
 .nether .panel{background:linear-gradient(145deg,#302038f5,#171022f5);border-color:#b382b766}
 .nether .panel p{color:#dac7de}.nether .choice{background:#120d2266;border-color:#a07eaa66}
 .nether .choice:hover{background:#49304e}.nether .choice small{color:#cdbbd4}

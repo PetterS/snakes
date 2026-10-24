@@ -285,9 +285,101 @@ def check_feedback(browser, reduced=False):
     print(f"PASS feedback ({suffix}): real digging, combo milestones, optional audio, responsive streak meter; no page errors")
 
 
+def check_exploration(browser):
+    context = browser.new_context(viewport={"width": 1024, "height": 768},
+                                  device_scale_factor=2, is_mobile=True, has_touch=True)
+    context.add_init_script(INSTRUMENT)
+    page = context.new_page()
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(URL)
+    page.locator("#start").tap()
+    page.evaluate("""() => {
+      const g=testGame,e=g.encounters[0];Object.assign(g.player,{x:e.x,y:e.y,oldX:e.x,oldY:e.y,dir:2,invincible:100});g.reveal();
+    }""")
+    page.screenshot(path="/tmp/deep-below-chrome-tactical-room.png")
+    page.locator("#drill").tap()
+    page.wait_for_function("testGame.player.drilling===0 && testGame.player.y===testGame.relics[0].y-1")
+
+    # Walk into a generated refuge, collect its one chest, and verify readable safe-state UI.
+    page.evaluate("""() => {
+      const g=testGame,r=g.refuges[0];Object.assign(g.player,{x:r.x,y:r.y-1,oldX:r.x,oldY:r.y-1,hp:2,invincible:0});g.reveal();
+    }""")
+    page.keyboard.down("ArrowDown")
+    page.wait_for_function("testGame.refuges[0].visited && testGame.player.y===testGame.refuges[0].y")
+    page.keyboard.up("ArrowDown")
+    page.wait_for_function("document.querySelector('#threat').classList.contains('calm')")
+    assert "trygg" in page.locator("#threat").inner_text()
+    hp = page.evaluate("testGame.player.hp")
+    page.wait_for_timeout(400)
+    assert page.evaluate("testGame.player.hp") == hp
+    for w, h in [(1024, 768), (768, 1024), (390, 844)]:
+        page.set_viewport_size({"width": w, "height": h})
+        page.wait_for_timeout(100)
+        assert not page.evaluate("document.documentElement.scrollWidth>innerWidth || document.documentElement.scrollHeight>innerHeight")
+        page.screenshot(path=f"/tmp/deep-below-chrome-refuge-{w}x{h}.png")
+
+    # Existing relic choices unlock the gate; clues themselves never reveal the destination.
+    page.set_viewport_size({"width": 1024, "height": 768})
+    for i in range(3):
+        page.evaluate("i=>{const g=testGame,r=g.relics[i];g.collect(g.items.get(DeepBelow.key(r.x,r.y)));}", i)
+        page.locator("[data-perk]").first.tap()
+        page.wait_for_function("testGame.state==='playing'")
+    page.evaluate("testGame.perks.clear()")
+    page.evaluate("""() => {
+      const g=testGame,r=g.refuges[2];Object.assign(g.player,{x:r.x,y:r.y-1,oldX:r.x,oldY:r.y-1,invincible:0});g.step(2);
+    }""")
+    page.wait_for_function("document.querySelector('#expedition').classList.contains('nether') && document.querySelector('#threat').textContent.includes('Asklyktan')")
+    page.screenshot(path="/tmp/deep-below-chrome-refuge-nether.png")
+    for i in range(3, 6):
+        page.evaluate("""i => {
+          const g=testGame,c=g.clues.find(c=>c.relic===i),d=DeepBelow.DIRS[c.dir];
+          Object.assign(g.player,{x:c.x-d.x,y:c.y-d.y,oldX:c.x-d.x,oldY:c.y-d.y,drilling:0,invincible:100});
+          g.grid[g.player.y][g.player.x]=0;g.step(c.dir);
+        }""", i)
+        page.wait_for_function("testGame.relics[" + str(i) + "].trailFound")
+        assert not page.evaluate("testGame.relics[" + str(i) + "].discovered")
+        assert page.evaluate("testGame.target()===null")
+        page.wait_for_function("document.querySelector('#objective').textContent.includes(DeepBelow.TRAILS[" + str(i-3) + "].name)")
+        page.screenshot(path=f"/tmp/deep-below-chrome-clue-{i}.png")
+        if i == 3:
+            page.set_viewport_size({"width": 390, "height": 844})
+            page.screenshot(path="/tmp/deep-below-chrome-clue-phone.png")
+            page.set_viewport_size({"width": 1024, "height": 768})
+        page.evaluate("""i => {
+          const g=testGame,r=g.relics[i];g.collect(g.items.get(DeepBelow.key(r.x,r.y)));
+        }""", i)
+        page.locator("[data-perk]").first.tap()
+        page.wait_for_function("testGame.state==='playing'")
+        page.evaluate("testGame.perks.clear()")
+
+    # A visible warning precedes pursuit; a corner and distance let the player shake it off.
+    page.evaluate("testGame.player.y=4;testGame.player.drilling=0;testGame.step(0)")
+    page.locator("#again").tap()
+    page.evaluate("""() => {
+      const g=testGame;g.horrors=[];g.refuges=[];g.items.clear();g.noise=0;g.noiseSource=null;
+      g.grid=Array.from({length:DeepBelow.HEIGHT},()=>Array(DeepBelow.WIDTH).fill(1));
+      for(let x=10;x<=38;x++)g.grid[20][x]=0;
+      for(let y=20;y<=24;y++)g.grid[y][28]=0;
+      for(let x=28;x<=38;x++)g.grid[24][x]=0;
+      Object.assign(g.player,{x:28,y:20,oldX:28,oldY:20,invincible:100,relics:0});
+      g.snakes=[{body:[{x:20,y:20},{x:19,y:20},{x:18,y:20}],previous:[{x:20,y:20},{x:19,y:20},{x:18,y:20}],biome:0,dir:1,stun:0,timer:0,interval:.3,alert:false,notice:0}];
+      g.makeNoise(28,20,1.2);g.reveal();g.snakeStep(g.snakes[0]);
+    }""")
+    page.wait_for_function("document.querySelector('#depth').textContent==='34m' && document.querySelector('#threat').textContent.includes('lyssnar')")
+    page.screenshot(path="/tmp/deep-below-chrome-snake-warning.png")
+    page.evaluate("""() => {const g=testGame;g.noise=0;Object.assign(g.player,{x:38,y:24,oldX:38,oldY:24});g.reveal();}""")
+    page.wait_for_function("testGame.snakes[0].mode==='search' && testGame.snakes[0].notice===0")
+    page.wait_for_function("testGame.snakes[0].memory===null && !testGame.snakes[0].alert")
+    assert not errors, errors
+    context.close()
+    print("PASS exploration: tactical drill passage, refuge safety/layouts, three clue styles without map spoilers, snake warning and lost pursuit; no page errors")
+
+
 with sync_playwright() as p:
     # Reuse the browser launched by the user's browser skill. Only our test context closes.
     browser = p.chromium.connect_over_cdp("http://127.0.0.1:9222")
     check(browser, "chrome")
     check_feedback(browser)
     check_feedback(browser, reduced=True)
+    check_exploration(browser)
