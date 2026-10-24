@@ -30,6 +30,7 @@ def check(browser, name):
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(URL)
+    page.screenshot(path=f"/tmp/deep-below-{name}-camp.png")
     page.locator("#start").tap()
     page.wait_for_function("testGame.state === 'playing'")
     # Native touchscreen taps: no mouse click fallback and no duplicate flare use.
@@ -120,28 +121,102 @@ def check(browser, name):
             assert r["y"] >= 0 and r["y"] + r["h"] <= h
         page.screenshot(path=f"/tmp/deep-below-{name}-{w}x{h}.png")
 
-    # Exercise the relic UI, perk choices, end screen and permanent upgrades.
+    # The sealed door cannot be drilled through before the first three relics.
     page.set_viewport_size({"width": 1024, "height": 768})
+    page.evaluate("""() => {
+      const g=testGame,p=g.player;Object.assign(p,{x:DeepBelow.GATE_X,y:DeepBelow.GATE_Y-1,oldX:DeepBelow.GATE_X,oldY:DeepBelow.GATE_Y-1,dir:2,drillCooldown:0,drilling:0});g.reveal();
+    }""")
+    page.wait_for_function("!document.querySelector('#drill').disabled")
+    page.locator("#drill").tap()
+    page.wait_for_function("testGame.player.drillCooldown>0 && testGame.player.drilling===0")
+    assert page.evaluate("testGame.player.y") == 93
+    page.wait_for_function("document.querySelector('#toast').textContent.includes('förseglad')")
+    page.screenshot(path=f"/tmp/deep-below-{name}-gate-sealed.png")
+
+    # Exercise upper relic choices and the gate-opening explanation.
     for i in range(3):
         page.evaluate("""i => {
           const g=testGame,r=g.relics[i];Object.assign(g.player,{x:r.x,y:r.y,oldX:r.x,oldY:r.y});
           g.reveal(10);g.collect(g.items.get(DeepBelow.key(r.x,r.y)));
         }""", i)
         page.locator("[data-perk]").first.wait_for()
+        if i == 2:
+            assert "Nattporten" in page.locator("#panel").inner_text()
+            assert "AV 6" in page.locator("#panel").inner_text()
         page.locator("[data-perk]").first.tap()
         page.wait_for_function("testGame.state === 'playing'")
-    page.screenshot(path=f"/tmp/deep-below-{name}-ember.png")
-    page.evaluate("testGame.player.y=3;testGame.finish(true)")
+    assert page.evaluate("testGame.gate.open")
+    page.wait_for_function("document.querySelector('#objective').textContent.includes('Nattporten')")
+    page.evaluate("testGame.player.y=4;testGame.step(0)")
+    page.wait_for_function("!document.querySelector('#bank').classList.contains('hidden')")
+    assert page.evaluate("testGame.state") == "playing"
+    page.evaluate("""() => {
+      const g=testGame;Object.assign(g.player,{x:DeepBelow.GATE_X,y:DeepBelow.GATE_Y-1,oldX:DeepBelow.GATE_X,oldY:DeepBelow.GATE_Y-1,drilling:0});g.reveal();
+    }""")
+    page.wait_for_function("document.querySelector('#depth').textContent==='180m'")
+    page.screenshot(path=f"/tmp/deep-below-{name}-gate-open.png")
+    page.keyboard.down("ArrowDown")
+    page.wait_for_function("testGame.player.y>=96")
+    page.keyboard.up("ArrowDown")
+    page.wait_for_function("document.querySelector('#expedition').classList.contains('nether')")
+    assert page.evaluate("testGame.enteredNether")
+    assert page.evaluate("testGame.relics.slice(3).every(r=>!r.discovered)")
+    assert "dolda" in page.locator("#objective").inner_text()
+    assert "DÖDSRIKET" in page.locator("#map-caption").inner_text()
+
+    # A horror visibly warns, then a real touch flare interrupts its attack.
+    page.evaluate("""() => {
+      const g=testGame;Object.assign(g.player,{x:29,y:108,oldX:29,oldY:108,invincible:100,flares:5});
+      g.horrors=[{x:33,y:108,stun:0,charge:0,rush:0,cooldown:0,target:null}];
+      g.addSnake(25,111,19,3);g.reveal();
+    }""")
+    page.wait_for_function("testGame.horrors[0].charge>1")
+    page.screenshot(path=f"/tmp/deep-below-{name}-horror-warning.png")
+    page.locator("#flare").tap()
+    page.wait_for_function("testGame.horrors[0].stun>0 && testGame.horrors[0].charge===0")
+    assert page.evaluate("testGame.player.flares") == 4
+    for w, h in [(1024, 768), (768, 1024), (390, 844)]:
+        page.set_viewport_size({"width": w, "height": h})
+        page.wait_for_timeout(180)
+        assert not page.evaluate("document.documentElement.scrollWidth>innerWidth || document.documentElement.scrollHeight>innerHeight")
+        page.screenshot(path=f"/tmp/deep-below-{name}-nether-{w}x{h}.png")
+
+    # Discover each lower relic before collecting it; all six choices remain usable.
+    for i in range(3, 6):
+        page.evaluate("""i => {
+          const g=testGame,r=g.relics[i];Object.assign(g.player,{x:r.x,y:r.y-3,oldX:r.x,oldY:r.y-3,invincible:100});g.reveal();
+        }""", i)
+        page.wait_for_function("document.querySelector('#objective').textContent.includes(testGame.relics[" + str(i) + "].name)")
+        assert page.evaluate("testGame.relics[" + str(i) + "].discovered")
+        page.evaluate("""i => {
+          const g=testGame,r=g.relics[i];Object.assign(g.player,{x:r.x,y:r.y,oldX:r.x,oldY:r.y});g.collect(g.items.get(DeepBelow.key(r.x,r.y)));
+        }""", i)
+        page.locator("[data-perk]").first.wait_for()
+        assert page.locator("[data-perk]").count() == 3
+        assert "+90 DIAMANTER" in page.locator("#panel").inner_text()
+        page.screenshot(path=f"/tmp/deep-below-{name}-relic-{i+1}.png")
+        page.locator("[data-perk]").first.tap()
+        page.wait_for_function("testGame.state === 'playing'")
+    page.wait_for_function("document.querySelector('#objective').textContent.includes('Nattporten')")
+    page.evaluate("""() => {
+      const g=testGame;Object.assign(g.player,{x:DeepBelow.GATE_X,y:DeepBelow.GATE_Y+1});g.step(0);g.step(0);
+    }""")
+    assert page.evaluate("testGame.player.y") == 93
+    page.wait_for_function("document.querySelector('#objective').textContent.includes('Baslägret')")
+    page.evaluate("testGame.player.y=4;testGame.step(0)")
     page.locator("#again").wait_for()
-    assert "Du tog ljuset med dig hem" in page.locator("#panel").inner_text()
+    assert "Till och med mörkret släppte taget" in page.locator("#panel").inner_text()
+    assert "6/6" in page.locator("#panel").inner_text()
     assert page.evaluate("testGame.result.complete")
+    page.screenshot(path=f"/tmp/deep-below-{name}-victory.png")
     page.locator('[data-upgrade="pick"]').tap()
     page.locator("#again").tap()
     page.wait_for_function("testGame.state === 'playing'")
     assert page.evaluate("testGame.upgrades.pick") == 1
+    assert page.evaluate("!testGame.gate.open && !testGame.enteredNether && testGame.player.relics===0")
     assert not errors, errors
     context.close()
-    print(f"PASS {name}: native touch tools, multi-pointer steering, cancellation, pause, responsive layouts, relics, victory, upgrades; no page errors")
+    print(f"PASS {name}: touch tools, multi-pointer steering, cancellation, responsive layouts, sealed/open gate, horror/flare, six relics, victory, upgrades; no page errors")
 
 
 with sync_playwright() as p:

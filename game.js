@@ -7,7 +7,7 @@
   const T = 36, reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let width=1000, height=650, scale=1, pixelRatio=1, camera={x:0,y:0}, last=performance.now();
   let game, pointer=null, keys=new Set(), particles=[], labels=[], rings=[], shake=0;
-  let clock=0, uiTimer=0, toastTimer=0, chapterTimer=0, rockHint=0, mapOpen=true;
+  let clock=0, uiTimer=0, toastTimer=0, chapterTimer=0, rockHint=0, whisperHint=0, ambienceTimer=0, mapOpen=true;
   let audio=null, sound=false, storageOK=true, saved={bank:0,best:0,runs:0,wins:0,upgrades:{pick:0,boots:0,armor:0}};
   const elements = Object.fromEntries(['biome','depth','hearts','relics','objective','gems','combo','drill','drill-label','recharge','flare','flare-count','bank','threat'].map(id=>[id,$('#'+id)]));
   try {
@@ -57,9 +57,9 @@
     }));
   }
   function camp() {
-    showPanel('<span class="eyebrow">DEN SOVANDE SOLEN</span><h1 id="panel-title">DJUPT<br><em>UNDER</em></h1>'+
-      '<p class="tagline">Något där nere väntar på att väckas.</p>'+
-      '<p>Tre uråldriga reliker. En förmögenhet i diamanter.<br>Och enorma ormar som följer dina tunnlar.</p>'+
+    showPanel('<span class="eyebrow">BORTOM NATTPORTEN</span><h1 id="panel-title">DJUPT<br><em>UNDER</em></h1>'+
+      '<p class="tagline">Det finns ett djup som ljuset aldrig når.</p>'+
+      '<p>Tre reliker öppnar den förseglade Nattporten.<br>Därunder väntar dödsriket, tre gömda reliker<br>och fasor som aldrig borde ha väckts.</p>'+
       '<div class="pill-row"><span><b>↯</b> Borra genom sten</span><span><b>✦</b> Bedöva med bloss</span><span><b>◆</b> Säkra fynd och uppgradera</span></div>'+
       '<button id="start" class="primary">Börja expeditionen ↘</button>'+
       '<div class="instructions">HÅLL ETT FINGER FÖR ATT GÅ OCH GRÄVA · ETT ANDRA FÖR VERKTYG<br>MUS ELLER WASD / PILTANGENTER · MELLANSLAG FÖR BORR · F FÖR BLOSS</div>'+
@@ -76,29 +76,33 @@
     if(game.state!=='playing')return;game.pause();clearInput();
     showPanel('<span class="eyebrow">EXPEDITIONEN ÄR PAUSAD</span><h2 id="panel-title">Ta ett andetag.</h2>'+
       '<p>Håll i en riktning för att gå. Borren tar dig genom sten och ormar. Bloss bedövar ormar i närheten och lockar bort andra.</p>'+
-      '<p>Samla de tre relikerna, eller återvänd till ytan tidigare för att säkra dina fynd. Förrådskistor ger dig ett hjärta och ett bloss.</p>'+
+      '<p>De första tre relikerna öppnar Nattporten vid grottans botten. Tre till ligger gömda i dödsriket. För hem alla sex, eller återvänd tidigare och säkra dina fynd.</p>'+
+      '<p>I dödsriket tar bett två hjärtan. Fasor går genom väggar: lämna den röda ringen innan de anfaller. Bloss driver bort dem, borren bedövar dem. Kistor ger hjärtan och bloss.</p>'+
       '<div class="run-perks">'+[...game.perks].map(id=>E.PERKS.find(p=>p.id===id).name).join(' · ')+'</div>'+
       '<button id="resume" class="primary">Fortsätt utforska</button>');
     $('#resume').addEventListener('click',()=>{unlockAudio();game.resume();hidePanel();});
   }
   function chooseRelic(event) {
-    showPanel('<span class="eyebrow">RELIK '+game.player.relics+' AV 3 HITTAD</span><h2 id="panel-title">'+event.name+'</h2>'+
-      '<p>Reliken delar med sig av sin kraft. Välj en gåva för den här expeditionen.</p>'+
+    const message=game.player.relics===3?'De tre sigillen brister. Nattporten vid grottans botten är öppen. Vågar du fortsätta ner, eller tar du fynden hem?':event.index>=3?'Något märker att en del av dess mörker saknas. Jakten blir snabbare. Välj en kraft för vägen hem.':'Reliken delar med sig av sin kraft. Välj en gåva för den här expeditionen.';
+    showPanel('<span class="eyebrow">RELIK '+game.player.relics+' AV 6 HITTAD</span><h2 id="panel-title">'+event.name+'</h2>'+
+      '<p>'+message+'</p>'+
       '<div class="choices">'+game.choices.map(p=>'<button class="choice" data-perk="'+p.id+'"><span class="perk-icon">'+p.icon+'</span><strong>'+p.name+'</strong><small>'+p.text+'</small></button>').join('')+'</div>'+
-      '<p class="instructions">+30 DIAMANTER · TVÅ HJÄRTAN ÅTERSTÄLLDA · GROTTOR I NÄRHETEN AVSLÖJADE</p>');
+      '<p class="instructions">+'+event.amount+' DIAMANTER · UPP TILL TVÅ HJÄRTAN ÅTERSTÄLLDA · NY KRAFT</p>');
     document.querySelectorAll('[data-perk]').forEach(b=>b.addEventListener('click',()=>{
       unlockAudio();if(!game.choose(b.dataset.perk))return;hidePanel();chord();updateHUD();
-      if(game.player.relics===3){announce('Solen har vaknat. Spring.');toast('Alla ormar känner av den. Ta relikerna till ytan!',6);}
+      if(game.player.relics===3){announce('Nattporten är öppen.');toast('Följ portens tecken neråt. Du kan också återvända och säkra dina fynd.',7);}
+      else if(game.player.relics===6){announce('Mörkret vill ha er tillbaka.');toast('Alla sex är dina. Tillbaka genom Nattporten, sedan upp till ytan!',7);}
+      else if(game.player.relics>3)toast('Dödsriket vaknar. Håll ett bloss redo. Du kan fortfarande vända om.',6);
       else toast('En ny kraft. Ett djupare mysterium.');
     }));
   }
   function results(event) {
     saved.bank+=event.earned;saved.runs++;saved.best=Math.max(saved.best,event.earned);if(event.complete)saved.wins++;persist();
     const render=()=>{
-      showPanel('<span class="eyebrow">'+(event.complete?'SOLEN ÅTERVÄNDER':event.escaped?'TILLBAKA I BASLÄGRET':'RÄDDNINGEN ÄR HÄR')+'</span>'+
-        '<h2 id="panel-title">'+(event.complete?'Du tog ljuset med dig hem.':event.escaped?'Lite rikare. Lite klokare.':'Djupet behåller sina hemligheter.')+'</h2>'+
-        '<p>'+(event.complete?'Tre reliker är återförenade. Underjorden väntar på ditt nästa äventyr.':event.escaped?'Dina diamanter är i trygghet. Uppgradera utrustningen och ge dig ner i en ny grotta.':'Räddarna fick med sig en fjärdedel av dina diamanter. Rusta dig och prova en ny väg.')+'</p>'+
-        '<div class="run-stats"><div><strong>◆ '+event.earned+'</strong><small>SPARADE</small></div><div><strong>'+event.depth+'m</strong><small>DJUPASTE</small></div><div><strong>'+event.relics+'/3</strong><small>RELIKER</small></div></div>'+
+      showPanel('<span class="eyebrow">'+(event.complete?'TILLBAKA FRÅN DÖDSRIKET':event.escaped?'TILLBAKA I BASLÄGRET':'RÄDDNINGEN ÄR HÄR')+'</span>'+
+        '<h2 id="panel-title">'+(event.complete?'Till och med mörkret släppte taget.':event.upperComplete?'Du tog ljuset med dig hem.':event.escaped?'Lite rikare. Lite klokare.':'Djupet behåller sina hemligheter.')+'</h2>'+
+        '<p>'+(event.complete?'Alla sex reliker är i trygghet. Du hör fortfarande viskningarna, men ovanför dig finns himlen.':event.upperComplete?event.relics+' av sex reliker är i trygghet. Det var klokt att överleva. Dödsrikets återstående hemligheter väntar på en ny expedition.':event.escaped?'Dina diamanter är i trygghet. Uppgradera utrustningen och ge dig ner i en ny grotta.':'Räddarna fick med sig en fjärdedel av dina diamanter. Relikerna blev kvar i djupet. Rusta dig och prova en ny väg.')+'</p>'+
+        '<div class="run-stats"><div><strong>◆ '+event.earned+'</strong><small>SPARADE</small></div><div><strong>'+event.depth+'m</strong><small>DJUPASTE</small></div><div><strong>'+event.relics+'/6</strong><small>'+(event.escaped?'RÄDDADE RELIKER':'HITTADE RELIKER')+'</small></div></div>'+
         shopHTML()+'<button id="again" class="primary">En ny expedition ↘</button><div class="panel-note">Bästa fynd: '+saved.best+' · '+Math.floor(event.seconds/60)+'m '+event.seconds%60+'s under jord'+(!storageOK?' · Framstegen sparas under det här besöket':'')+'</div>');
       $('#again').addEventListener('click',start);bindShop(render);
     };render();
@@ -115,11 +119,19 @@
         burst(event.x,event.y,'#89f5d1',8);labels.push({x:event.x*T+18,y:event.y*T,text:'+'+event.amount,color:'#b4ffe1',life:1});
         note([523,587,659,784,880][event.combo%5],.12,'sine',.025);
       }
-      if(event.type==='chest'){burst(event.x,event.y,'#f8cd75',22);toast('Förrådskista! +'+event.amount+' diamanter, +1 bloss, +1 hjärta');chord();}
+      if(event.type==='chest'){burst(event.x,event.y,'#f8cd75',22);toast('Förrådskista! +'+event.amount+' diamanter, +'+event.supply+' bloss, +'+event.supply+' hjärtan');chord();}
       if(event.type==='rock'&&rockHint<=0){toast('Hård sten. Tryck på Turboborra för att ta dig igenom.');rockHint=4;}
+      if(event.type==='sealed'&&rockHint<=0){toast(event.gate?'Nattporten är förseglad. Hämta de tre relikerna ovanför.':'En uråldrig försegling. Bara Nattporten släpper dig igenom.',5);rockHint=4;}
+      if(event.type==='gate'){shake=.5;note(55,1.5,'triangle',.06);}
+      if(event.type==='nether'){toast('Dödsriket. Relikerna är dolda. Bloss driver bort fasorna; lämna deras röda ringar.',8);note(46,2,'sine',.07);}
+      if(event.type==='discovery')toast('I mörkret glimmar '+event.name+'. Platsen är markerad på kartan.',5);
+      if(event.type==='whisper'){
+        chapterTimer=0;$('#chapter').style.opacity=0;
+        if(whisperHint<=0){toast('En fasa siktar på dig. Lämna den röda ringen!',3);note(68,.8,'sawtooth',.015);whisperHint=5;}
+      }
       if(event.type==='drill'){shake=.18;note(110,.3,'sawtooth',.025);}
       if(event.type==='flare'){burst(event.x,event.y,'#ffb980',28);rings.push({x:p.x*T+18,y:p.y*T+18,r:12,life:1,color:'#ffc490'});note(220,.3,'triangle');}
-      if(event.type==='hurt'){shake=.4;burst(p.x,p.y,'#ed997d',20);toast('Ormbett! Borra dig bort eller tänd ett bloss.',2);note(85,.35,'sawtooth',.035);}
+      if(event.type==='hurt'){shake=.4;burst(p.x,p.y,'#ed997d',20);toast(event.source==='horror'?'Fasan nådde dig! Tänd ett bloss och fly.':'Ormbett! Borra dig bort eller tänd ett bloss.',2);note(85,.35,'sawtooth',.035);}
       if(event.type==='biome')announce(event.name);
       if(event.type==='relic'){chord();chooseRelic(event);}
       if(event.type==='end'){event.escaped?chord():note(100,.6,'triangle');results(event);}
@@ -197,9 +209,13 @@
     const p=game.player,b=E.BIOMES[E.biomeAt(p.y)],target=game.target();
     setText('biome',b.name.toUpperCase());setText('depth',Math.max(0,p.y-E.SURFACE)*2+'m');
     setText('hearts','♥'.repeat(p.hp)+'♡'.repeat(p.maxHp-p.hp));elements.hearts.setAttribute('aria-label',p.hp+' av '+p.maxHp+' hjärtan');
-    setText('relics','◆'.repeat(p.relics)+'◇'.repeat(3-p.relics));
-    const dx=target.x-p.x,dy=target.y-p.y,arrow=Math.abs(dx)>Math.abs(dy)?(dx>0?'→':'←'):(dy>0?'↓':'↑');
-    setText('objective',arrow+' '+target.name+' · '+Math.round(Math.hypot(dx,dy)*2)+'m');
+    const upper=Math.min(3,p.relics),lower=Math.max(0,p.relics-3);
+    setText('relics','◆'.repeat(upper)+'◇'.repeat(3-upper)+' · '+'◆'.repeat(lower)+'◇'.repeat(3-lower));
+    elements.relics.setAttribute('aria-label',p.relics+' av 6 reliker');
+    if(target){const dx=target.x-p.x,dy=target.y-p.y,arrow=Math.abs(dx)>Math.abs(dy)?(dx>0?'→':'←'):(dy>0?'↓':'↑');setText('objective',arrow+' '+target.name+' · '+Math.round(Math.hypot(dx,dy)*2)+'m');}
+    else setText('objective','Utforska mörkret · '+(6-p.relics)+' reliker dolda');
+    $('#expedition').classList.toggle('nether',p.y>E.GATE_Y);
+    setText('threat',p.y>E.GATE_Y?'Något följer dig genom mörkret.':'Något hörde dig. Fortsätt röra dig.');
     setText('gems',p.bag);setText('combo',game.combo>=5?'×'+Math.min(4,1+Math.floor(game.combo/5))+' DIAMANTSVIT':'');
     setText('flare-count',p.flares);elements.flare.disabled=p.flares<1||game.state!=='playing';
     elements.drill.disabled=p.drillCooldown>0||game.state!=='playing';
@@ -210,12 +226,15 @@
     elements.threat.classList.toggle('hidden',!game.threat||game.state!=='playing');
   }
   function drawMap() {
-    if(!mapOpen)return;mctx.fillStyle='#10221e';mctx.fillRect(0,0,116,192);
-    for(let y=0;y<E.HEIGHT;y++)for(let x=0;x<E.WIDTH;x++)if(game.seen[E.key(x,y)]) {
-      mctx.fillStyle=y<=E.SURFACE?'#6d9364':game.grid[y][x]===0?'#8b9871':E.BIOMES[E.biomeAt(y)].soil[0];mctx.fillRect(x*2,y*2,2,2);
+    if(!mapOpen)return;const nether=game.player.y>E.GATE_Y,start=nether?E.GATE_Y:0,end=nether?E.HEIGHT:E.GATE_Y+1,sy=192/(end-start);
+    $('#map-caption').textContent=nether?'DÖDSRIKET · ◇ RELIK':'GROTTORNA · ◇ RELIK';
+    mctx.fillStyle=nether?'#100d19':'#10221e';mctx.fillRect(0,0,116,192);
+    for(let y=start;y<end;y++)for(let x=0;x<E.WIDTH;x++)if(game.seen[E.key(x,y)]) {
+      mctx.fillStyle=y<=E.SURFACE?'#6d9364':game.grid[y][x]>=3?'#6c537f':game.grid[y][x]===0?(nether?'#817190':'#8b9871'):E.BIOMES[E.biomeAt(y)].soil[0];mctx.fillRect(x*2,(y-start)*sy,2,Math.ceil(sy));
     }
-    for(const r of game.relics){mctx.fillStyle=r.taken?'#87946b':'#f6cc7d';mctx.save();mctx.translate(r.x*2+1,r.y*2+1);mctx.rotate(Math.PI/4);mctx.fillRect(-2,-2,4,4);mctx.restore();}
-    const p=game.player;mctx.fillStyle='#fff6ce';mctx.beginPath();mctx.arc(p.x*2+1,p.y*2+1,2.5,0,7);mctx.fill();
+    for(const r of game.relics){if(r.y<start||r.y>=end||(r.hidden&&!r.discovered))continue;mctx.fillStyle=r.taken?'#87946b':'#f6cc7d';mctx.save();mctx.translate(r.x*2+1,(r.y-start)*sy+1);mctx.rotate(Math.PI/4);mctx.fillRect(-2,-2,4,4);mctx.restore();}
+    mctx.fillStyle=game.gate.open?'#e9b9ff':'#9d6a99';mctx.fillRect(E.GATE_X*2-3,(E.GATE_Y-start)*sy,8,3);
+    const p=game.player;mctx.fillStyle='#fff6ce';mctx.beginPath();mctx.arc(p.x*2+1,(p.y-start)*sy+1,2.5,0,7);mctx.fill();
   }
   function diamond(x,y,size,color='#8fefd0') {
     ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(x,y-size);ctx.lineTo(x+size*.8,y-size*.25);ctx.lineTo(x,y+size);ctx.lineTo(x-size*.8,y-size*.25);ctx.closePath();ctx.fill();
@@ -228,9 +247,10 @@
       if(y===E.SURFACE){ctx.fillStyle='#bec17e';ctx.fillRect(xx,yy,T,4);ctx.fillStyle='#9bb56e';for(let i=0;i<3;i++)ctx.fillRect(xx+3+i*12,yy-3-n*5,2,7);}
       return;
     }
-    if(!game.seen[E.key(x,y)]){ctx.fillStyle='#14201c';ctx.fillRect(xx,yy,T+1,T+1);return;}
+    if(!game.seen[E.key(x,y)]){ctx.fillStyle=y>E.GATE_Y?'#100d19':'#14201c';ctx.fillRect(xx,yy,T+1,T+1);return;}
+    if(type>=3){ctx.fillStyle='#211b2b';ctx.fillRect(xx,yy,T+1,T+1);ctx.strokeStyle='#7a537f';ctx.lineWidth=2;ctx.strokeRect(xx+3,yy+5,T-6,T-10);ctx.fillStyle='#b08dba';ctx.font='17px Georgia';ctx.fillText('ᛟ',xx+12,yy+24);return;}
     if(type!==0) {
-      ctx.fillStyle=type===2?'#66716b':b.soil[Math.floor(n*3)];ctx.fillRect(xx,yy,T+1,T+1);
+      ctx.fillStyle=type===2?(y>E.GATE_Y?'#5c5067':'#66716b'):b.soil[Math.floor(n*3)];ctx.fillRect(xx,yy,T+1,T+1);
       ctx.fillStyle='#00000024';ctx.fillRect(xx,yy,T,2);ctx.fillRect(xx,yy,1,T);
       if(game.grid[y-1]?.[x]===0){ctx.fillStyle=type===2?'#a3aaa0':'#c6ac7655';ctx.fillRect(xx,yy,T,4);}
       if(game.grid[y]?.[x-1]===0){ctx.fillStyle='#00000040';ctx.fillRect(xx,yy,4,T);}
@@ -242,7 +262,8 @@
       if(n>.85&&!game.items.has(E.key(x,y))) {
         if(E.biomeAt(y)===0){ctx.fillStyle='#718c5a';ctx.fillRect(xx+9,yy+23,2,7);ctx.fillStyle='#a2c780';ctx.beginPath();ctx.ellipse(xx+10,yy+21,6,3,0,0,7);ctx.fill();}
         else if(E.biomeAt(y)===1){ctx.fillStyle='#779bc266';ctx.beginPath();ctx.moveTo(xx+8,yy+32);ctx.lineTo(xx+11,yy+17);ctx.lineTo(xx+17,yy+30);ctx.fill();}
-        else{ctx.fillStyle='#db855555';ctx.fillRect(xx+9,yy+28,9,1);}
+        else if(y<=E.GATE_Y){ctx.fillStyle='#db855555';ctx.fillRect(xx+9,yy+28,9,1);}
+        else{ctx.strokeStyle='#aa8ba655';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(xx+6,yy+28);ctx.lineTo(xx+25,yy+21);ctx.moveTo(xx+12,yy+22);ctx.lineTo(xx+15,yy+29);ctx.stroke();ctx.fillStyle='#cf91ad66';ctx.fillRect(xx+25,yy+12,2,2);}
       }
     }
   }
@@ -265,6 +286,47 @@
       if(!r.taken){const glow=ctx.createRadialGradient(x,y,5,x,y,100);glow.addColorStop(0,color+'30');glow.addColorStop(1,color+'00');ctx.fillStyle=glow;ctx.fillRect(x-100,y-100,200,200);}
     }
   }
+  function drawGate() {
+    const g=game.gate,x=g.x*T+18,y=g.y*T+T;
+    if(y<camera.y-140||y>camera.y+height+140||!game.seen[E.key(g.x,g.y-1)])return;
+    ctx.save();ctx.translate(x,y);
+    const aura=ctx.createRadialGradient(0,-45,8,0,-45,150);aura.addColorStop(0,g.open?'#a86cdb55':'#b075a433');aura.addColorStop(1,'#7b429000');ctx.fillStyle=aura;ctx.fillRect(-150,-195,300,300);
+    ctx.fillStyle='#11101c';ctx.beginPath();ctx.moveTo(-43,0);ctx.lineTo(-43,-80);ctx.quadraticCurveTo(0,-145,43,-80);ctx.lineTo(43,0);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='#87718d';ctx.lineWidth=13;ctx.stroke();ctx.strokeStyle='#c4a7cb';ctx.lineWidth=2;ctx.stroke();
+    if(g.open){
+      ctx.fillStyle='#37243f';ctx.fillRect(-27,-63,54,63);
+      for(let i=0;i<7;i++){const offset=reducedMotion?i/7:(clock*.14+i/7)%1;ctx.strokeStyle='#c695d744';ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(0,-34,12+offset*18,20+offset*30,0,0,7);ctx.stroke();}
+    } else {
+      ctx.fillStyle='#3b2a43';ctx.fillRect(-31,-69,62,69);
+      for(let i=0;i<3;i++){const filled=game.relics[i].taken;diamond((i-1)*23,-48,8,filled?'#ffe2a5':'#796282');}
+      ctx.strokeStyle='#cca7ce';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-31,-21);ctx.lineTo(31,-64);ctx.moveTo(-31,-64);ctx.lineTo(31,-21);ctx.stroke();
+    }
+    ctx.textAlign='center';ctx.font='bold 11px Arial';ctx.fillStyle='#eed9f1';ctx.fillText('NATTPORTEN',0,-145);
+    ctx.font='10px Arial';ctx.fillStyle='#c9afcf';ctx.fillText(g.open?'DÖDSRIKET VÄNTAR':'TRE RELIKER BRYTER SIGILLET',0,26);ctx.restore();
+  }
+  function drawHorror(h,index) {
+    const x=h.x*T+18,y=h.y*T+18;
+    if(x<camera.x-100||x>camera.x+width+100||y<camera.y-100||y>camera.y+height+100||!game.seen[E.key(Math.round(h.x),Math.round(h.y))])return;
+    ctx.save();ctx.translate(x,y);ctx.globalAlpha=h.stun>0?.35:.85;
+    const phase=reducedMotion?0:clock;
+    const aura=ctx.createRadialGradient(0,0,4,0,0,65);aura.addColorStop(0,'#d468bc44');aura.addColorStop(1,'#733e9400');ctx.fillStyle=aura;ctx.fillRect(-65,-65,130,130);
+    ctx.strokeStyle=h.charge>0?'#e9a0c7':'#9f73b4';ctx.lineWidth=4;ctx.lineCap='round';
+    for(let i=0;i<8;i++){
+      const a=i*Math.PI/4+index,wave=Math.sin(phase*2.5+i)*10;
+      ctx.beginPath();ctx.moveTo(Math.cos(a)*10,Math.sin(a)*12);ctx.quadraticCurveTo(Math.cos(a+.5)*34,Math.sin(a+.5)*32,Math.cos(a)*42+wave,Math.sin(a)*38);ctx.stroke();
+    }
+    ctx.fillStyle='#140e20';ctx.beginPath();ctx.ellipse(0,0,19,24,Math.sin(phase)*.15,0,7);ctx.fill();ctx.strokeStyle='#a58abb';ctx.lineWidth=1;ctx.stroke();
+    for(let i=0;i<5;i++){const a=i*2.4+index;ctx.fillStyle=h.stun>0?'#9da9b9':'#ffe1ed';ctx.beginPath();ctx.ellipse(Math.cos(a)*10,Math.sin(a)*14,4,2.4,a,0,7);ctx.fill();ctx.fillStyle='#702554';ctx.fillRect(Math.cos(a)*10-1,Math.sin(a)*14-2,2,4);}
+    ctx.restore();
+  }
+  function horrorWarnings() {
+    for(const h of game.horrors)if(h.charge>0&&h.target&&game.player.y>E.GATE_Y){
+      const x=h.target.x*T+18,y=h.target.y*T+18;
+      ctx.strokeStyle='#ff9cba';ctx.fillStyle='#e3557f35';ctx.lineWidth=3;ctx.beginPath();ctx.arc(x,y,29,0,7);ctx.fill();ctx.stroke();
+      ctx.beginPath();ctx.moveTo(x-11,y-11);ctx.lineTo(x+11,y+11);ctx.moveTo(x+11,y-11);ctx.lineTo(x-11,y+11);ctx.stroke();
+      ctx.fillStyle='#ffd9e3';ctx.font='bold 11px Arial';ctx.textAlign='center';ctx.fillText('FLYTTA DIG',x,y-39);ctx.textAlign='start';
+    }
+  }
   function drawSnake(s) {
     if(!s.body.some(p=>game.seen[E.key(p.x,p.y)]&&p.x*T>camera.x-T*2&&p.x*T<camera.x+width+T*2&&p.y*T>camera.y-T*2&&p.y*T<camera.y+height+T*2))return;
     const blend=Math.min(1,s.timer/s.interval);
@@ -277,9 +339,11 @@
       ctx.strokeStyle=color;ctx.lineWidth=size;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
       ctx.fillStyle='#273c3066';ctx.beginPath();ctx.ellipse(a.x,a.y,size*.3,size*.4,Math.atan2(b.y-a.y,b.x-a.x),0,7);ctx.fill();
       ctx.fillStyle='#e9e8ae3a';ctx.beginPath();ctx.arc(a.x-2,a.y-4,3,0,7);ctx.fill();
+      if(s.nether&&i%2===0){ctx.fillStyle='#ecd7df';ctx.beginPath();ctx.moveTo(a.x-7,a.y-9);ctx.lineTo(a.x-2,a.y-21);ctx.lineTo(a.x+4,a.y-10);ctx.fill();}
     }
     const h=points[0],neck=points[1],angle=Math.atan2(h.y-neck.y,h.x-neck.x);
     ctx.save();ctx.translate(h.x,h.y);ctx.rotate(angle);ctx.fillStyle=color;ctx.beginPath();ctx.ellipse(3,0,19,14,0,0,7);ctx.fill();
+    if(s.nether){ctx.fillStyle='#f6d2df';for(const side of [-1,1]){ctx.beginPath();ctx.moveTo(12,side*9);ctx.lineTo(25,side*7);ctx.lineTo(15,side*3);ctx.fill();}}
     ctx.fillStyle=s.alert?'#ffebad':'#e9df9f';ctx.beginPath();ctx.arc(9,-8,4,0,7);ctx.arc(9,8,4,0,7);ctx.fill();ctx.fillStyle='#18271e';ctx.fillRect(9,-11,2,6);ctx.fillRect(9,5,2,6);
     if(Math.sin(clock*7)>0){ctx.strokeStyle='#e9a388';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(20,0);ctx.lineTo(29,0);ctx.lineTo(34,-4);ctx.moveTo(29,0);ctx.lineTo(34,4);ctx.stroke();}ctx.restore();
     if(s.stun>0){ctx.fillStyle='#e1f6b7';ctx.font='17px Georgia';for(let i=0;i<3;i++)ctx.fillText('✦',h.x+Math.cos(clock*3+i*2.1)*24-6,h.y-24+Math.sin(clock*3+i*2.1)*7);}
@@ -314,7 +378,7 @@
     ctx.translate(-camera.x+shakeX,-camera.y+shakeY);
     const x0=Math.max(0,Math.floor(camera.x/T)-1),x1=Math.min(E.WIDTH,Math.ceil((camera.x+width)/T)+1),y0=Math.max(0,Math.floor(camera.y/T)-1),y1=Math.min(E.HEIGHT,Math.ceil((camera.y+height)/T)+1);
     for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++)tile(x,y);
-    if(y0<5)campDrawing();temples();
+    if(y0<5)campDrawing();temples();drawGate();
     for(const item of game.items.values()) {
       if(item.x<x0||item.x>x1||item.y<y0||item.y>y1||!game.seen[E.key(item.x,item.y)])continue;
       const x=item.x*T+18,y=item.y*T+18;
@@ -323,6 +387,7 @@
       else{ctx.shadowColor='#f9d591';ctx.shadowBlur=23;diamond(x,y-7+Math.sin(clock*2)*5,17,E.BIOMES[E.biomeAt(item.y)].color);ctx.shadowBlur=0;}
     }
     for(const s of game.snakes)drawSnake(s);
+    game.horrors.forEach(drawHorror);
     for(const f of game.flares) {
       const x=f.x*T+18,y=f.y*T+18,g=ctx.createRadialGradient(x,y,4,x,y,150);g.addColorStop(0,'#f4ae6855');g.addColorStop(1,'#e49c5200');ctx.fillStyle=g;ctx.fillRect(x-150,y-150,300,300);
       ctx.fillStyle='#ffde91';ctx.beginPath();ctx.arc(x,y,6+Math.sin(clock*15)*2,0,7);ctx.fill();ctx.fillStyle='#fff6d8';ctx.fillRect(x-2,y-9,4,15);
@@ -332,11 +397,17 @@
     for(const ring of rings){ctx.globalAlpha=ring.life;ctx.strokeStyle=ring.color;ctx.lineWidth=2;ctx.beginPath();ctx.arc(ring.x,ring.y,ring.r,0,7);ctx.stroke();}ctx.globalAlpha=1;
     for(const label of labels){ctx.globalAlpha=Math.min(1,label.life*2);ctx.fillStyle=label.color;ctx.font='bold 16px Arial';ctx.fillText(label.text,label.x,label.y);}ctx.globalAlpha=1;
     // Previously explored edges stay visible; undiscovered caves conceal their inhabitants.
-    for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++)if(y>E.SURFACE&&!game.seen[E.key(x,y)]){ctx.fillStyle='#14201c';ctx.fillRect(x*T,y*T,T+1,T+1);}
+    for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++)if(y>E.SURFACE&&!game.seen[E.key(x,y)]){ctx.fillStyle=y>E.GATE_Y?'#100d19':'#14201c';ctx.fillRect(x*T,y*T,T+1,T+1);}
     ctx.restore();
-    const glow=ctx.createRadialGradient(px-camera.x,py-camera.y,70,px-camera.x,py-camera.y,Math.max(330,width*.65));
-    glow.addColorStop(0,'#07161000');glow.addColorStop(1,'#071610b0');ctx.fillStyle=glow;ctx.fillRect(0,0,width,height);
-    if(p.relics===3){ctx.strokeStyle='#f5bd5744';ctx.lineWidth=4;ctx.strokeRect(2,2,width-4,height-4);}
+    const nether=p.y>E.GATE_Y,lit=game.flares.some(f=>Math.hypot(f.x-p.x,f.y-p.y)<f.radius),radius=nether?(game.perks.has('lantern')?320:240)+(lit?100:0):Math.max(330,width*.65);
+    const glow=ctx.createRadialGradient(px-camera.x,py-camera.y,nether?45:70,px-camera.x,py-camera.y,radius);
+    glow.addColorStop(0,nether?'#08051200':'#07161000');glow.addColorStop(1,nether?'#080512e8':'#071610b0');ctx.fillStyle=glow;ctx.fillRect(0,0,width,height);
+    // Attack telegraphs stay readable even at the edge of the lamp's light.
+    ctx.save();ctx.translate(-camera.x,-camera.y);horrorWarnings();ctx.restore();
+    if(nether){
+      ctx.fillStyle='#c7a1db55';for(let i=0;i<18;i++){const t=reducedMotion?0:clock;const x=(hash(i,8)*width+Math.sin(t*.2+i)*20+width)%width,y=(hash(i,4)*height-t*(3+i%3)+height*100)%height;ctx.fillRect(x,y,2,2);}
+      ctx.strokeStyle='#a8618744';ctx.lineWidth=5;ctx.strokeRect(2,2,width-4,height-4);
+    } else if(p.relics===6){ctx.strokeStyle='#f5bd5744';ctx.lineWidth=4;ctx.strokeRect(2,2,width-4,height-4);}
     if(pointer&&game.state==='playing') {
       const r=canvas.getBoundingClientRect(),x=(pointer.x-r.left)/scale,y=(pointer.y-r.top)/scale;
       ctx.strokeStyle='#f5d99799';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(x,y,16,0,7);ctx.stroke();ctx.beginPath();ctx.arc(x,y,3,0,7);ctx.stroke();
@@ -344,7 +415,8 @@
   }
   function frame(time) {
     const dt=Math.min(.05,(time-last)/1000);last=time;clock+=dt;
-    game.update(dt,direction());events();shake=Math.max(0,shake-dt);rockHint=Math.max(0,rockHint-dt);
+    game.update(dt,direction());events();shake=Math.max(0,shake-dt);rockHint=Math.max(0,rockHint-dt);whisperHint=Math.max(0,whisperHint-dt);
+    if(game.state==='playing'&&game.player.y>E.GATE_Y){ambienceTimer-=dt;if(ambienceTimer<=0){note(41,2.5,'sine',.035);note(43,2.2,'sine',.02,.15);ambienceTimer=5;}}
     for(const p of particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=110*dt;p.life-=dt;}particles=particles.filter(p=>p.life>0);
     for(const l of labels){l.y-=26*dt;l.life-=dt;}labels=labels.filter(l=>l.life>0);
     for(const r of rings){r.r+=230*dt;r.life-=dt;}rings=rings.filter(r=>r.life>0);
