@@ -29,6 +29,7 @@ Load `engine.js` before `game.js`. Keep gameplay rules in the engine and renderi
 - Each expedition generates a seeded 58 × 184 tile world. Tiles are open tunnel (`0`), diggable earth (`1`), rock (`2`), unbreakable seal (`3`), or closed gate (`4`). The surface is row 3; one tile represents two metres of depth.
 - The upper regions are **Rotdjupet**, **Kristallkatedralen**, and **Glödvalvet**. Recover **Vildmarkens hjärta**, **Månens tår**, and **Den sovande solen** to open **Nattporten**, at column 29, row 94. Its surrounding magical barrier cannot be drilled through, even after the gate opens.
 - Below are **Asksvalget**, **De namnlösas salar**, and **Nattens avgrund**. Their relics are **Korpsångens krona**, **Den namnlöses öga**, and **Det sista andetaget**. Their positions vary and stay off the compass/map until discovered. Vision is shorter below; the minimap switches between the upper caves and the netherworld.
+- The HUD shows only the first three relic slots until Nattporten opens. Then it reveals the three lower slots; its accessibility label follows the same visible total.
 - Relic rooms have guaranteed diggable access and a return route through the gate. Preserve reachability and the sealed boundary when changing generation. Tests cover 100 seeds with the gate both closed and open.
 - Snakes move through open tunnels, including newly excavated player tunnels. They investigate digging noise, follow nearby players, and react to flares. They stay below the safe surface area. Recovering the last relic makes the escape more dangerous.
 - Netherworld snakes are faster, inflict two hearts of damage, and recover from stuns sooner. Each lower relic increases pursuit speed further. Horrors cross walls, mark a fixed attack location for 1.5 seconds, then rush it. They remain below the gate; flares interrupt/repel them and drilling stuns them.
@@ -90,7 +91,7 @@ The user asked to close all agent browser windows at the end of this session. Ke
 - GitHub Pages automatically publishes the **repository root of `main`** after a push. A push to `main` is a public deployment, so finish implementation and required checks first.
 - The established workflow is to publish requested game updates after completing them. The user specifically required the expanded game to be translated to Swedish before publishing; that version is now live.
 - Stage intended files explicitly so the untracked README or temporary test artifacts are not accidentally published. Do not force-push.
-- Keep the app's relative asset paths valid under `/snakes/`. HTML currently references assets with `?v=3`; update the cache version together when necessary to prevent an old cached script/style from being mixed with new HTML.
+- Keep the app's relative asset paths valid under `/snakes/`. HTML currently references assets with `?v=4`; update the cache version together when necessary to prevent an old cached script/style from being mixed with new HTML.
 - Verify the Pages build for the pushed commit, not just any previous successful build:
 
 ```sh

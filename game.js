@@ -210,8 +210,8 @@
     setText('biome',b.name.toUpperCase());setText('depth',Math.max(0,p.y-E.SURFACE)*2+'m');
     setText('hearts','♥'.repeat(p.hp)+'♡'.repeat(p.maxHp-p.hp));elements.hearts.setAttribute('aria-label',p.hp+' av '+p.maxHp+' hjärtan');
     const upper=Math.min(3,p.relics),lower=Math.max(0,p.relics-3);
-    setText('relics','◆'.repeat(upper)+'◇'.repeat(3-upper)+' · '+'◆'.repeat(lower)+'◇'.repeat(3-lower));
-    elements.relics.setAttribute('aria-label',p.relics+' av 6 reliker');
+    setText('relics','◆'.repeat(upper)+'◇'.repeat(3-upper)+(game.gate.open?' · '+'◆'.repeat(lower)+'◇'.repeat(3-lower):''));
+    elements.relics.setAttribute('aria-label',p.relics+' av '+(game.gate.open?6:3)+' reliker');
     if(target){const dx=target.x-p.x,dy=target.y-p.y,arrow=Math.abs(dx)>Math.abs(dy)?(dx>0?'→':'←'):(dy>0?'↓':'↑');setText('objective',arrow+' '+target.name+' · '+Math.round(Math.hypot(dx,dy)*2)+'m');}
     else setText('objective','Utforska mörkret · '+(6-p.relics)+' reliker dolda');
     $('#expedition').classList.toggle('nether',p.y>E.GATE_Y);
