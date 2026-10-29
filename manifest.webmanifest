@@ -1,0 +1,16 @@
+{
+  "id": "./",
+  "name": "Djupt under",
+  "short_name": "Djupt under",
+  "description": "Gräv efter diamanter, hitta reliker och utforska mörkret bortom Nattporten.",
+  "lang": "sv",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#14251f",
+  "theme_color": "#14251f",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}

@@ -19,8 +19,10 @@
 | `style.css` | Responsive layout, safe-area spacing, touch target sizes, menus and HUD styling. |
 | `engine.js` | Deterministic simulation: world generation, movement, snakes, combat, loot, relic choices, and expedition results. No DOM or browser dependencies. Exports `DeepBelow` in the browser and CommonJS exports for Node tests. |
 | `game.js` | Canvas rendering, pointer/keyboard input, menus, sound, local saves, and consuming engine events. |
+| `install.js`, `manifest.webmanifest`, `sw.js`, `icons/` | Home-screen installation, standalone metadata/icons, and scoped offline caching. |
 | `tests/game.test.cjs` | Node tests for generation, reachability, complete expeditions, snakes, tools, damage, payouts, and powers. |
 | `tests/browser_check.py` | Playwright checks against an existing Chrome instance: actual touch tools, multiple pointers, cancellation, responsive layout, relic UI, victory, and upgrades. Dependencies are pinned in its inline `uv` metadata. |
+| `tests/install_check.py` | Installation, native touch, keyboard/menu layouts, worker updates, cache isolation, offline reopening, and direct-file fallback in background Chrome tabs. |
 
 Load `engine.js` before `game.js`. Keep gameplay rules in the engine and rendering/input/storage in `game.js`. Use `emit()` / `drainEvents()` to connect gameplay events to effects and menus. Do not add production debug state to support tests: the browser test injects its own instrumented `Game` constructor.
 
@@ -96,7 +98,11 @@ The user asked to close all agent browser windows at the end of this session. Ke
 - GitHub Pages automatically publishes the **repository root of `main`** after a push. A push to `main` is a public deployment, so finish implementation and required checks first.
 - The established workflow is to publish requested game updates after completing them. The user specifically required the expanded game to be translated to Swedish before publishing; that version is now live.
 - Stage intended files explicitly so the untracked README or temporary test artifacts are not accidentally published. Do not force-push.
-- Keep the app's relative asset paths valid under `/snakes/`. HTML currently references assets with `?v=6`; update the cache version together when necessary to prevent an old cached script/style from being mixed with new HTML.
+- Keep the app's relative asset paths valid under `/snakes/`.
+- Home-screen support uses Apple metadata/icons and a standalone manifest. Installation help belongs in camp, pause and result menus, never over gameplay. Chrome's install button appears only when a native prompt is available; iOS uses Safari's Share menu.
+- Runtime assets now use `?v=7`. On runtime changes, bump the cache version in `sw.js` and asset queries in both `index.html` and its precache list. Never reload an active expedition during an update or delete another app's caches on this shared origin.
+- Run `uv run tests/install_check.py` for installation/cache changes. It temporarily serves `/snakes/` on loopback to test real workers, then stops the server to verify offline play. It closes its background tabs even on failure. No server is needed for normal `file://` play; workers register only over HTTP(S).
+- Home-screen play preserves the existing save model: banked finds and upgrades persist; an unfinished expedition is not saved on close.
 - Verify the Pages build for the pushed commit, not just any previous successful build:
 
 ```sh

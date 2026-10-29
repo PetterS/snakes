@@ -4,8 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#14251f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Djupt under">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Djupt under — Bortom Nattporten</title>
-  <link rel="stylesheet" href="style.css?v=6">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
   <main id="expedition">
@@ -29,7 +35,24 @@
     </div>
     <div id="overlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="panel-title"><section id="panel" class="panel"></section></div>
   </main>
-  <script src="engine.js?v=6"></script>
-  <script src="game.js?v=6"></script>
+  <template id="install-template">
+    <details class="install-help">
+      <summary>Lägg till på hemskärmen</summary>
+      <button class="install-button" type="button" hidden>Installera Djupt under</button>
+      <p><strong>iPhone och iPad</strong> · Öppna spelet i Safari.</p>
+      <ol>
+        <li>Tryck på <strong>Dela</strong> <svg class="share-icon" viewBox="0 0 24 24" role="img" aria-label="fyrkant med pil uppåt"><path d="M8 9H5v12h14V9h-3M12 15V2m-4 4 4-4 4 4"/></svg>, ibland via sidmenyn.</li>
+        <li>Välj <strong>Lägg till på hemskärmen</strong>.</li>
+        <li>Låt <strong>Öppna som webbapp</strong> vara på om valet visas. Tryck på <strong>Lägg till</strong>.</li>
+      </ol>
+      <p><strong>Android och Chrome</strong> · Använd installationsknappen ovan om den visas, eller välj <strong>Installera app</strong> / <strong>Lägg till på startskärmen</strong> i webbläsarens meny. På datorn finns installation även vid adressfältet.</p>
+      <p>Starta sedan med lyktikonen. Spelet öppnas i ett eget fönster.</p>
+      <p class="offline-status" role="status">Ladda spelet med internet för att förbereda spel utan uppkoppling.</p>
+      <p>Sparade fynd och uppgraderingar lagras på den här enheten. En pågående expedition sparas inte när appen stängs.</p>
+    </details>
+  </template>
+  <script src="engine.js?v=7"></script>
+  <script src="install.js?v=7"></script>
+  <script src="game.js?v=7"></script>
 </body>
 </html>

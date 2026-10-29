@@ -49,6 +49,7 @@
   function clearInput() {pointer=null;keys.clear();}
   function showPanel(html) {
     clearInput();$('#panel').innerHTML=html;$('#overlay').classList.remove('hidden');
+    if($('#start, #resume, #again'))window.DeepBelowInstall?.mount($('#panel'));
     // Focus the actual action, without moving Safari's visual viewport.
     const first=$('#panel button:not(:disabled)');if(first)first.focus({preventScroll:true});
   }
@@ -211,7 +212,7 @@
     const key=event.key.toLowerCase();
     if(!$('#overlay').classList.contains('hidden')) {
       if(key==='tab') {
-        const buttons=[...$('#panel').querySelectorAll('button:not(:disabled)')],first=buttons[0],lastButton=buttons[buttons.length-1];
+        const buttons=[...$('#panel').querySelectorAll('button:not(:disabled), summary, a[href]')].filter(el=>el.getClientRects().length&&(!el.closest('details:not([open])')||el.matches('summary'))),first=buttons[0],lastButton=buttons[buttons.length-1];
         if(event.shiftKey&&document.activeElement===first){event.preventDefault();lastButton?.focus();}
         else if(!event.shiftKey&&document.activeElement===lastButton){event.preventDefault();first?.focus();}
       }
