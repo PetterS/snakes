@@ -9,15 +9,18 @@
   let game, pointer=null, keys=new Set(), particles=[], labels=[], rings=[], impacts=[], shake=0;
   let pickSwing=0, pickDirection=2, digSoundTimer=0, haulPulse=0, comboPulse=0;
   let clock=0, uiTimer=0, toastTimer=0, chapterTimer=0, rockHint=0, whisperHint=0, ambienceTimer=0, mapOpen=true;
-  let audio=null, sound=false, storageOK=true, saved={bank:0,best:0,runs:0,wins:0,upgrades:{pick:0,boots:0,armor:0}};
-  const elements = Object.fromEntries(['biome','depth','hearts','relics','objective','gems','combo','drill','drill-label','recharge','flare','flare-count','bank','threat'].map(id=>[id,$('#'+id)]));
+  let audio=null, sound=false, storageOK=true, saved={bank:0,best:0,runs:0,wins:0,slain:0,upgrades:{pick:0,boots:0,armor:0,blast:0},finds:[]};
+  let nextSeed=newSeed(), flash=0, flashColor='#fff0c0', blastHinted=false, fuseTimer=0;
+  const elements = Object.fromEntries(['biome','depth','hearts','relics','objective','gems','combo','drill','drill-label','recharge','flare','flare-count','dynamite','dynamite-count','bank','threat'].map(id=>[id,$('#'+id)]));
   try {
     const old=JSON.parse(localStorage.getItem('deep-below-camp')||'null');
     if(old&&typeof old==='object') {
-      for(const id of ['bank','best','runs','wins'])saved[id]=Math.max(0,Math.floor(Number(old[id])||0));
-      for(const id of ['pick','boots','armor'])saved.upgrades[id]=Math.min(3,Math.max(0,Math.floor(Number(old.upgrades?.[id])||0)));
+      for(const id of ['bank','best','runs','wins','slain'])saved[id]=Math.max(0,Math.floor(Number(old[id])||0));
+      for(const id of ['pick','boots','armor','blast'])saved.upgrades[id]=Math.min(3,Math.max(0,Math.floor(Number(old.upgrades?.[id])||0)));
+      if(Array.isArray(old.finds))saved.finds=E.FOSSILS.map(f=>f.id).filter(id=>old.finds.includes(id));
     }
   } catch { storageOK=false; }
+  function newSeed() {return (Date.now()^Math.floor(Math.random()*1e9))>>>0;}
   function persist() {try{localStorage.setItem('deep-below-camp',JSON.stringify(saved));}catch{storageOK=false;}}
   function setText(id,text) {if(elements[id].textContent!==String(text))elements[id].textContent=text;}
   function hash(x,y) {let n=Math.sin(x*127.1+y*311.7)*43758.5453;return n-Math.floor(n);}
@@ -44,6 +47,20 @@
     if(rock){note(740,.035,'triangle',.024);note(310,.065,'triangle',.018,.025);}
   }
   function chord() {[392,494,587,784].forEach((f,i)=>note(f,.4,'sine',.04,i*.09));}
+  function boom(size=1) {
+    if(!sound||!audio||audio.state!=='running')return;
+    try {
+      // Filtered noise gives the blast and the landing boulder some weight.
+      const now=audio.currentTime,length=Math.floor(audio.sampleRate*.6*size),buffer=audio.createBuffer(1,length,audio.sampleRate),data=buffer.getChannelData(0);
+      for(let i=0;i<length;i++)data[i]=(Math.random()*2-1)*Math.pow(1-i/length,2.2);
+      const src=audio.createBufferSource(),filter=audio.createBiquadFilter(),g=audio.createGain();
+      src.buffer=buffer;filter.type='lowpass';filter.frequency.setValueAtTime(900*size,now);filter.frequency.exponentialRampToValueAtTime(80,now+.5*size);
+      g.gain.setValueAtTime(.18*Math.min(1,size),now);src.connect(filter);filter.connect(g);g.connect(audio.destination);src.start(now);
+      src.onended=()=>{src.disconnect();filter.disconnect();g.disconnect();};
+    } catch {sound=false;}
+    note(48*size+20,.5*size,'sine',.07);
+  }
+  function fanfare() {[523,659,784,1046,1318].forEach((f,i)=>note(f,.25,'triangle',.03,i*.06));}
   function toast(message,time=3.5) {$('#toast').textContent=message;$('#toast').style.opacity=1;toastTimer=time;}
   function announce(name) {$('#chapter strong').textContent=name;$('#chapter').style.opacity=1;chapterTimer=3;}
   function clearInput() {pointer=null;keys.clear();}
@@ -60,6 +77,16 @@
       return '<button class="upgrade" data-upgrade="'+u.id+'" '+(level>=3||saved.bank<cost?'disabled':'')+'><strong>'+u.name+'</strong><small>'+u.text+'</small><span class="price">'+(level>=3?'FULLT UPPGRADERAD':'◆ '+cost+' · Nivå '+level+'/3')+'</span></button>';
     }).join('')+'</div>';
   }
+  function missionsHTML(bounties,title) {
+    return '<div class="missions"><span class="eyebrow">'+title+'</span><ul>'+bounties.map(b=>'<li class="'+(b.done?'done':'')+'"><span class="mark">'+(b.done?'✓':'○')+'</span><span>'+b.text+(b.goal>1&&!b.done&&b.progress?' <small>'+b.progress+'/'+b.goal+'</small>':'')+'</span><b>◆ '+b.reward+'</b></li>').join('')+'</ul></div>';
+  }
+  function collectionHTML(fresh=[]) {
+    const count=saved.finds.length;
+    return '<div class="collection"><div class="camp-heading"><span>SAMLINGEN · FORNFYND</span><strong>'+count+' / '+E.FOSSILS.length+'</strong></div><div class="shelf">'+E.FOSSILS.map(f=>{
+      const owned=saved.finds.includes(f.id);
+      return '<span class="relic-slot'+(owned?' owned':'')+(fresh.includes(f.id)?' fresh':'')+'" title="'+(owned?f.name+'. '+f.text:'Okänt fornfynd')+'" aria-label="'+(owned?f.name:'Okänt fornfynd')+'">'+(owned?f.icon:'?')+'</span>';
+    }).join('')+'</div>'+(count===E.FOSSILS.length?'<p class="panel-note">Samlingen är komplett. Djupet har inga fler gåtor att ge dig.</p>':'')+'</div>';
+  }
   function bindShop(render) {
     document.querySelectorAll('[data-upgrade]').forEach(button=>button.addEventListener('click',()=>{
       const upgrade=E.UPGRADES.find(u=>u.id===button.dataset.upgrade),level=saved.upgrades[upgrade.id],cost=upgrade.cost*(level+1);
@@ -70,16 +97,17 @@
     showPanel('<span class="eyebrow">BORTOM NATTPORTEN</span><h1 id="panel-title">DJUPT<br><em>UNDER</em></h1>'+
       '<p class="tagline">Det finns ett djup som ljuset aldrig når.</p>'+
       '<p>Tre reliker öppnar den förseglade Nattporten.<br>Därunder väntar dödsriket, tre gömda reliker<br>och fasor som aldrig borde ha väckts.</p>'+
-      '<div class="pill-row"><span><b>↯</b> Borra genom sten</span><span><b>✦</b> Bedöva med bloss</span><span><b>◆</b> Säkra fynd och uppgradera</span></div>'+
+      '<div class="pill-row"><span><b>↯</b> Borra genom sten</span><span><b>✦</b> Bedöva med bloss</span><span><b>●</b> Fäll stenblock på ormar</span><span><b>✸</b> Spräng med dynamit</span></div>'+
+      missionsHTML(new E.Game(nextSeed,saved.upgrades,{found:saved.finds}).bounties,'EXPEDITIONENS UPPDRAG')+
       '<button id="start" class="primary">Börja expeditionen ↘</button>'+
-      '<div class="instructions">HÅLL ETT FINGER FÖR ATT GÅ OCH GRÄVA · ETT ANDRA FÖR VERKTYG<br>MUS ELLER WASD / PILTANGENTER · MELLANSLAG FÖR BORR · F FÖR BLOSS</div>'+
-      (saved.runs>0?shopHTML():'<div class="panel-note">Återvänd till ytan när du vill för att säkra dina diamanter.</div>')+
+      '<div class="instructions">HÅLL ETT FINGER FÖR ATT GÅ OCH GRÄVA · ETT ANDRA FÖR VERKTYG<br>MUS ELLER WASD / PILTANGENTER · MELLANSLAG BORR · F BLOSS · E DYNAMIT</div>'+
+      (saved.runs>0?shopHTML()+collectionHTML():'<div class="panel-note">Återvänd till ytan när du vill för att säkra dina diamanter.</div>')+
       (!storageOK?'<div class="panel-note">Uppgraderingarna sparas under det här besöket. Webbläsaren kan inte spara dem till nästa gång.</div>':''));
     $('#start').addEventListener('click',start);bindShop(camp);
   }
   function start() {
-    unlockAudio();game=new E.Game(Date.now()^Math.floor(Math.random()*1e9),saved.upgrades);game.start();
-    particles=[];labels=[];rings=[];impacts=[];shake=0;pickSwing=0;digSoundTimer=0;haulPulse=0;comboPulse=0;clearInput();hidePanel();updateHUD();drawMap();
+    unlockAudio();game=new E.Game(nextSeed,saved.upgrades,{found:saved.finds});nextSeed=newSeed();game.start();
+    particles=[];labels=[];rings=[];impacts=[];shake=0;flash=0;blastHinted=false;pickSwing=0;digSoundTimer=0;haulPulse=0;comboPulse=0;clearInput();hidePanel();updateHUD();drawMap();
     toast('Håll i en riktning för att gräva. Följ ◇ till den första reliken.',5);
   }
   function pause() {
@@ -91,6 +119,9 @@
       '<p>Följ diamantådrorna. Samla utan fyra sekunders uppehåll för att nå dubbelt, tredubbelt och fyrdubbelt värde. Men ådrorna leder ofta mot ormarna.</p>'+
       '<p>Ormar stannar upp när de hör dig. Bryt sikten och sluta gräva så söker de vid ditt senaste spår. Ta sidotunneln, följ svansen eller borra genom den guldspruckna stenen.</p>'+
       '<p>Lyktornas ljuscirklar är trygga viloplatser. I dödsriket visar bleka fjädrar, ögonristningar och glödande sprickor vägen till gömda reliker.</p>'+
+      '<p>Stenblock faller när marken under dem grävs bort. De vilar på din hjälm, men kliver du undan rasar de. Fäll dem på förbipasserande ormar: svansen blir diamanter, ett träffat huvud fäller hela ormen. Du kan knuffa block åt sidan och borra sönder dem.</p>'+
+      '<p>Dynamit väser i två sekunder och lockar till sig ormar innan den smäller. Håll avståndet!</p>'+
+      missionsHTML(game.bounties,'UPPDRAG')+
       '<div class="run-perks">'+[...game.perks].map(id=>E.PERKS.find(p=>p.id===id).name).join(' · ')+'</div>'+
       '<button id="resume" class="primary">Fortsätt utforska</button>');
     $('#resume').addEventListener('click',()=>{unlockAudio();game.resume();hidePanel();});
@@ -110,13 +141,20 @@
     }));
   }
   function results(event) {
-    saved.bank+=event.earned;saved.runs++;saved.best=Math.max(saved.best,event.earned);if(event.complete)saved.wins++;persist();
+    const fresh=event.finds.filter(id=>!saved.finds.includes(id));
+    saved.finds=E.FOSSILS.map(f=>f.id).filter(id=>saved.finds.includes(id)||event.finds.includes(id));
+    saved.bank+=event.earned;saved.runs++;saved.slain+=event.slain;saved.best=Math.max(saved.best,event.earned);if(event.complete)saved.wins++;persist();
+    const findNames=ids=>ids.map(id=>E.FOSSILS.find(f=>f.id===id)).map(f=>f.icon+' '+f.name).join(' · ');
     const render=()=>{
       showPanel('<span class="eyebrow">'+(event.complete?'TILLBAKA FRÅN DÖDSRIKET':event.escaped?'TILLBAKA I BASLÄGRET':'RÄDDNINGEN ÄR HÄR')+'</span>'+
         '<h2 id="panel-title">'+(event.complete?'Till och med mörkret släppte taget.':event.upperComplete?'Du tog ljuset med dig hem.':event.escaped?'Lite rikare. Lite klokare.':'Djupet behåller sina hemligheter.')+'</h2>'+
         '<p>'+(event.complete?'Alla sex reliker är i trygghet. Du hör fortfarande viskningarna, men ovanför dig finns himlen.':event.upperComplete?event.relics+' av sex reliker är i trygghet. Det var klokt att överleva. Dödsrikets återstående hemligheter väntar på en ny expedition.':event.escaped?'Dina diamanter är i trygghet. Uppgradera utrustningen och ge dig ner i en ny grotta.':'Räddarna fick med sig en fjärdedel av dina diamanter. Relikerna blev kvar i djupet. Rusta dig och prova en ny väg.')+'</p>'+
-        '<div class="run-stats"><div><strong>◆ '+event.earned+'</strong><small>SPARADE</small></div><div><strong>'+event.depth+'m</strong><small>DJUPASTE</small></div><div><strong>'+event.relics+'/6</strong><small>'+(event.escaped?'RÄDDADE RELIKER':'HITTADE RELIKER')+'</small></div></div>'+
-        shopHTML()+'<button id="again" class="primary">En ny expedition ↘</button><div class="panel-note">Bästa fynd: '+saved.best+' · '+Math.floor(event.seconds/60)+'m '+event.seconds%60+'s under jord'+(!storageOK?' · Framstegen sparas under det här besöket':'')+'</div>');
+        '<div class="run-stats"><div><strong>◆ '+event.earned+'</strong><small>SPARADE</small></div><div><strong>'+event.depth+'m</strong><small>DJUPASTE</small></div><div><strong>'+event.relics+'/6</strong><small>'+(event.escaped?'RÄDDADE RELIKER':'HITTADE RELIKER')+'</small></div><div><strong>'+event.slain+'</strong><small>FÄLLDA ORMAR</small></div></div>'+
+        (fresh.length?'<p class="new-finds">Nytt i samlingen: '+findNames(fresh)+'</p>':'')+
+        (event.lostFinds.length?'<p class="panel-note">Förlorat i djupet: '+findNames(event.lostFinds)+'</p>':'')+
+        missionsHTML(event.bounties,'UPPDRAG · '+event.bounties.filter(b=>b.done).length+' AV 3 KLARA')+
+        '<button id="again" class="primary">En ny expedition ↘</button><div class="panel-note">Bästa fynd: '+saved.best+' · '+Math.floor(event.seconds/60)+'m '+event.seconds%60+'s under jord'+(!storageOK?' · Framstegen sparas under det här besöket':'')+'</div>'+
+        shopHTML()+collectionHTML(fresh));
       $('#again').addEventListener('click',start);bindShop(render);
     };render();
   }
@@ -146,7 +184,32 @@
           [659,880,1318].forEach((f,i)=>note(f*(event.multiplier/2),.22,'sine',.025,i*.07));
         }
       }
-      if(event.type==='chest'){burst(event.x,event.y,'#f8cd75',22);toast('Förrådskista! +'+event.amount+' diamanter, +'+event.supply+' bloss, +'+event.supply+' hjärtan');chord();}
+      if(event.type==='chest'){burst(event.x,event.y,'#f8cd75',22);toast('Förrådskista! +'+event.amount+' diamanter, +'+event.supply+' bloss, +'+event.supply+' hjärtan'+(event.dynamite?', +1 dynamit':''));chord();}
+      if(event.type==='push'){burst(event.x,event.y,'#9aa39a',4,event.dir);digSound(true,false);}
+      if(event.type==='boulder-blocked'&&rockHint<=0){toast('Stenblocket sitter fast. Knuffa det mot en öppen gång eller borra sönder det.');rockHint=4;}
+      if(event.type==='boulder-land'){
+        const near=game.seen[E.key(event.x,event.y)]&&Math.hypot(event.x-p.x,event.y-p.y)<12;
+        if(near){burst(event.x,event.y+.4,'#b5b9ad',event.heavy?18:10);shake=Math.max(shake,event.heavy?.3:.15);boom(.45);}
+      }
+      if(event.type==='sever'){
+        const color=E.BIOMES[event.biome].snake;burst(event.x,event.y,color,30);burst(event.x,event.y,'#b4ffe1',16);shake=Math.max(shake,.45);flash=.18;flashColor=event.cause==='blast'?'#ffd6a0':'#e6fff0';
+        if(!reducedMotion)rings.push({x:event.x*T+18,y:event.y*T+18,r:14,life:.6,color:'#b4ffe1'});
+        labels.push({x:event.x*T+18,y:event.y*T-20,text:event.slain?'ORMEN ÄR FÄLLD!':'SVANSEN AV! +'+event.count+' ◆',color:event.slain?'#ffe3a0':'#b4ffe1',life:1.6,large:true});
+        fanfare();if(event.slain)note(98,.6,'sawtooth',.03);
+      }
+      if(event.type==='dynamite'){note(1400,.08,'square',.012);if(!blastHinted){blastHinted=true;toast('Stubinen väser! Ormar kommer för att se efter. Spring!',4);}}
+      if(event.type==='blast'){
+        burst(event.x,event.y,'#ffcf7a',40);burst(event.x,event.y,'#8b7f6c',30);shake=Math.max(shake,.8);flash=.32;flashColor='#ffe2b0';boom(1.3);
+        rings.push({x:event.x*T+18,y:event.y*T+18,r:20,life:.7,color:'#ffcf7a'});
+      }
+      if(event.type==='fossil'){
+        burst(event.x,event.y,'#ffd28f',26);chord();
+        const kind=E.FOSSILS.find(f=>f.id===event.id);
+        labels.push({x:event.x*T+18,y:event.y*T-14,text:kind.icon+' '+kind.name,color:'#ffd28f',life:2,large:true});
+        toast((event.fresh?'Nytt fornfynd! ':'Fornfynd. ')+kind.name+': '+kind.text+' +'+event.amount+' diamanter. Bär det hem för att spara det i samlingen.',7);
+      }
+      if(event.type==='bounty'){fanfare();toast('Uppdrag klart: '+event.text+' +'+event.reward+' diamanter i ryggsäcken.',5);haulPulse=.4;}
+      if(event.type==='boulders')toast('Ett stenblock vilar i taket. Gräv bort marken under, vänta på en orm och kliv undan!',7);
       if(event.type==='rock'&&rockHint<=0){toast('Hård sten. Tryck på Turboborra för att ta dig igenom.');rockHint=4;}
       if(event.type==='sealed'&&rockHint<=0){toast(event.gate?'Nattporten är förseglad. Hämta de tre relikerna ovanför.':'En uråldrig försegling. Bara Nattporten släpper dig igenom.',5);rockHint=4;}
       if(event.type==='gate'){shake=.5;note(55,1.5,'triangle',.06);}
@@ -162,7 +225,7 @@
       }
       if(event.type==='drill'){shake=.18;note(110,.3,'sawtooth',.025);}
       if(event.type==='flare'){burst(event.x,event.y,'#ffb980',28);rings.push({x:p.x*T+18,y:p.y*T+18,r:12,life:1,color:'#ffc490'});note(220,.3,'triangle');}
-      if(event.type==='hurt'){shake=.4;burst(p.x,p.y,'#ed997d',20);toast(event.source==='horror'?'Fasan nådde dig! Tänd ett bloss och fly.':'Ormbett! Borra dig bort eller tänd ett bloss.',2);note(85,.35,'sawtooth',.035);}
+      if(event.type==='hurt'){shake=.4;burst(p.x,p.y,'#ed997d',20);toast(event.source==='horror'?'Fasan nådde dig! Tänd ett bloss och fly.':event.source==='boulder'?'Ett fallande stenblock träffade dig!':event.source==='blast'?'Du stod för nära sprängningen!':'Ormbett! Borra dig bort eller tänd ett bloss.',2);note(85,.35,'sawtooth',.035);}
       if(event.type==='biome')announce(event.name);
       if(event.type==='relic'){chord();chooseRelic(event);}
       if(event.type==='end'){event.escaped?chord():note(100,.6,'triangle');results(event);}
@@ -203,7 +266,8 @@
   }
   function drill() {const d=direction();if(d!==null)game.player.dir=d;game.drill();events();updateHUD();}
   function flare() {game.flare();events();updateHUD();}
-  toolButton('#drill',drill);toolButton('#flare',flare);
+  function dynamite() {game.dynamite();events();updateHUD();}
+  toolButton('#drill',drill);toolButton('#flare',flare);toolButton('#dynamite',dynamite);
   $('#pause').addEventListener('click',pause);
   $('#bank').addEventListener('click',()=>{if(game.state==='playing'&&game.player.y===E.SURFACE&&game.player.bag>0){game.finish(true);events();}});
   $('#map-toggle').addEventListener('click',()=>{mapOpen=!mapOpen;$('#map-wrap').classList.toggle('hidden',!mapOpen);$('#map-toggle').setAttribute('aria-pressed',String(mapOpen));});
@@ -223,6 +287,7 @@
     if(event.repeat)return;
     if(key===' '){event.preventDefault();unlockAudio();drill();}
     if(key==='f'){event.preventDefault();unlockAudio();flare();}
+    if(key==='e'){event.preventDefault();unlockAudio();dynamite();}
     if(key==='p'||key==='escape')pause();
     if(key==='m')$('#map-toggle').click();
   });
@@ -253,6 +318,7 @@
     elements.combo.classList.toggle('active',game.combo>=5);
     elements.combo.setAttribute('aria-label',game.combo>=5?'Diamantsvit: '+Math.min(4,1+Math.floor(game.combo/5))+' gånger diamantvärdet':'');
     setText('flare-count',p.flares);elements.flare.disabled=p.flares<1||game.state!=='playing';
+    setText('dynamite-count',p.dynamite);elements.dynamite.disabled=p.dynamite<1||game.state!=='playing';
     elements.drill.disabled=p.drillCooldown>0||game.state!=='playing';
     setText('drill-label',p.drillCooldown>0?'LADDAR '+p.drillCooldown.toFixed(1)+'s':'REDO');
     const maximum=Math.max(2.4,7-saved.upgrades.boots)*(game.perks.has('drill')?.5:1);
@@ -265,7 +331,8 @@
     $('#map-caption').textContent=nether?'DÖDSRIKET · ◇ RELIK':'GROTTORNA · ◇ RELIK';
     mctx.fillStyle=nether?'#100d19':'#10221e';mctx.fillRect(0,0,116,192);
     for(let y=start;y<end;y++)for(let x=0;x<E.WIDTH;x++)if(game.seen[E.key(x,y)]) {
-      mctx.fillStyle=y<=E.SURFACE?'#6d9364':game.grid[y][x]>=3?'#6c537f':game.grid[y][x]===0?(nether?'#817190':'#8b9871'):E.BIOMES[E.biomeAt(y)].soil[0];mctx.fillRect(x*2,(y-start)*sy,2,Math.ceil(sy));
+      const t=game.grid[y][x];
+      mctx.fillStyle=y<=E.SURFACE?'#6d9364':t===5?'#c9cbbf':t>=3?'#6c537f':game.grid[y][x]===0?(nether?'#817190':'#8b9871'):E.BIOMES[E.biomeAt(y)].soil[0];mctx.fillRect(x*2,(y-start)*sy,2,Math.ceil(sy));
     }
     for(const r of game.relics){if(r.y<start||r.y>=end||(r.hidden&&!r.discovered))continue;mctx.fillStyle=r.taken?'#87946b':'#f6cc7d';mctx.save();mctx.translate(r.x*2+1,(r.y-start)*sy+1);mctx.rotate(Math.PI/4);mctx.fillRect(-2,-2,4,4);mctx.restore();}
     for(const r of game.refuges)if(r.y>=start&&r.y<end&&game.seen[E.key(r.x,r.y)]){mctx.strokeStyle='#c7eab3';mctx.lineWidth=1;mctx.beginPath();mctx.arc(r.x*2+1,(r.y-start)*sy+1,3,0,7);mctx.stroke();}
@@ -284,6 +351,11 @@
       return;
     }
     if(!game.seen[E.key(x,y)]){ctx.fillStyle=y>E.GATE_Y?'#100d19':'#14201c';ctx.fillRect(xx,yy,T+1,T+1);return;}
+    if(type===5){
+      // The stone itself is drawn later so it can slide and fall smoothly.
+      const open=E.DIRS.some(d=>game.grid[y+d.y]?.[x+d.x]===0);
+      ctx.fillStyle=open?b.floor:b.soil[Math.floor(n*3)];ctx.fillRect(xx,yy,T+1,T+1);return;
+    }
     if(type>=3){ctx.fillStyle='#211b2b';ctx.fillRect(xx,yy,T+1,T+1);ctx.strokeStyle='#7a537f';ctx.lineWidth=2;ctx.strokeRect(xx+3,yy+5,T-6,T-10);ctx.fillStyle='#b08dba';ctx.font='17px Georgia';ctx.fillText('ᛟ',xx+12,yy+24);return;}
     if(type!==0) {
       ctx.fillStyle=type===2?(y>E.GATE_Y?'#5c5067':'#66716b'):b.soil[Math.floor(n*3)];ctx.fillRect(xx,yy,T+1,T+1);
@@ -422,6 +494,40 @@
     } else if(s.alert){ctx.fillStyle=s.mode==='search'?'#e4ce96':'#ffb696';ctx.font='bold 17px Arial';ctx.fillText(s.mode==='search'?'?':'!',h.x-3,h.y-25);}
     else if(s.mode==='lured'){ctx.fillStyle='#ffd397';ctx.font='18px Arial';ctx.fillText('✦',h.x-7,h.y-25);}
   }
+  function drawBoulders(x0,x1,y0,y1) {
+    for(const b of game.boulders){
+      if(b.x<x0-1||b.x>x1+1||b.y<y0-1||b.y>y1+1||!game.seen[E.key(b.x,b.y)])continue;
+      const t=Math.min(1,b.blend),wobble=b.state==='wobble'&&!reducedMotion?Math.sin(clock*55)*2.5:0;
+      const x=(b.ox+(b.x-b.ox)*t)*T+18+wobble,y=(b.oy+(b.y-b.oy)*t)*T+19,spin=(b.ox+b.oy)*.7+(b.x-b.ox)*t*1.6;
+      ctx.save();ctx.translate(x,y);
+      ctx.fillStyle='#0b120f88';ctx.beginPath();ctx.ellipse(0,15,15,4,0,0,7);ctx.fill();
+      ctx.rotate(spin);
+      const shade=ctx.createRadialGradient(-6,-7,2,0,0,19);shade.addColorStop(0,'#c9cdc1');shade.addColorStop(.55,'#8b928a');shade.addColorStop(1,'#4c5450');
+      ctx.fillStyle=shade;ctx.beginPath();ctx.moveTo(-16,-4);ctx.quadraticCurveTo(-15,-16,-3,-17);ctx.quadraticCurveTo(13,-17,16,-5);ctx.quadraticCurveTo(18,9,6,15);ctx.quadraticCurveTo(-9,18,-15,8);ctx.closePath();ctx.fill();
+      ctx.strokeStyle='#2f3733';ctx.lineWidth=1.5;ctx.stroke();
+      ctx.strokeStyle='#3c443f99';ctx.beginPath();ctx.moveTo(-6,-9);ctx.lineTo(-1,-2);ctx.lineTo(-4,6);ctx.moveTo(5,3);ctx.lineTo(10,8);ctx.stroke();
+      ctx.restore();
+      if(b.state==='wobble'){ctx.fillStyle='#ffe2a1';ctx.font='bold 15px Arial';ctx.textAlign='center';ctx.fillText('!',x,y-24);ctx.textAlign='start';}
+    }
+  }
+  function drawCharges() {
+    for(const c of game.charges){
+      const x=c.x*T+18,y=c.y*T+20,urgency=1-c.fuse/2.2;
+      if(!reducedMotion){const g=ctx.createRadialGradient(x,y,2,x,y,30+urgency*25);g.addColorStop(0,'#ff8a5a'+(urgency>.7&&Math.sin(clock*40)>0?'88':'44'));g.addColorStop(1,'#ff8a5a00');ctx.fillStyle=g;ctx.fillRect(x-60,y-60,120,120);}
+      ctx.fillStyle='#b8322c';for(const dx of [-7,-1,5])ctx.fillRect(x+dx,y-8,6,17);
+      ctx.fillStyle='#e9d6a5';ctx.fillRect(x-8,y-2,20,3);
+      ctx.strokeStyle='#d9c79b';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x+2,y-8);ctx.quadraticCurveTo(x+4,y-16,x+9,y-17);ctx.stroke();
+      ctx.fillStyle=Math.sin(clock*30)>0?'#fff4b0':'#ffaa55';ctx.beginPath();ctx.arc(x+9,y-17,2.5+Math.random()*1.5,0,7);ctx.fill();
+      ctx.strokeStyle='#ffb07a';ctx.lineWidth=3;ctx.beginPath();ctx.arc(x,y,24,-Math.PI/2,-Math.PI/2+(c.fuse/2.2)*Math.PI*2);ctx.stroke();
+      if(Math.random()<.4&&!reducedMotion)particles.push({x:x+9,y:y-17,vx:(Math.random()-.5)*60,vy:-Math.random()*60,life:.25,color:'#ffd27a',size:2});
+    }
+  }
+  function drawFossil(x,y,item) {
+    const kind=E.FOSSILS.find(f=>f.id===item.id),pulse=reducedMotion?.5:.5+Math.sin(clock*2.4)*.5;
+    const glow=ctx.createRadialGradient(x,y,2,x,y,30);glow.addColorStop(0,'#ffcf7a'+(pulse>.5?'66':'40'));glow.addColorStop(1,'#ffcf7a00');ctx.fillStyle=glow;ctx.fillRect(x-30,y-30,60,60);
+    ctx.fillStyle='#c79650';ctx.beginPath();ctx.ellipse(x,y,13,11,.3,0,7);ctx.fill();ctx.strokeStyle='#ffe0a0';ctx.lineWidth=1.5;ctx.stroke();
+    ctx.fillStyle='#4a2f17';ctx.font='bold 14px Georgia';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(kind?.icon||'?',x,y+1);ctx.textAlign='start';ctx.textBaseline='alphabetic';
+  }
   function drawMiner(px,py) {
     const p=game.player,moving=p.blend<1,walk=moving?Math.sin(clock*23)*3:0,facing=p.dir===3?-1:1;
     ctx.save();ctx.translate(px,py);
@@ -474,10 +580,12 @@
         }ctx.stroke();
         ctx.shadowColor='#80e8c6';ctx.shadowBlur=6;diamond(x,y,7+item.value,'#8fefd0');ctx.shadowBlur=0;if(hash(item.x,item.y)>.6&&Math.sin(clock*3+item.x)>.8){ctx.fillStyle='#e7ffe7';ctx.fillRect(x+10,y-10,2,5);ctx.fillRect(x+8,y-8,6,1);}
       }
+      else if(item.type==='fossil')drawFossil(x,y,item);
       else if(item.type==='chest'){ctx.fillStyle='#443c25';ctx.fillRect(x-13,y-7,26,22);ctx.fillStyle='#cda969';ctx.fillRect(x-13,y-10,26,13);ctx.fillStyle='#ffe0a0';ctx.fillRect(x-3,y-2,6,7);ctx.strokeStyle='#e9c181';ctx.lineWidth=2;ctx.strokeRect(x-13,y-10,26,25);}
       else{ctx.shadowColor='#f9d591';ctx.shadowBlur=23;diamond(x,y-7+Math.sin(clock*2)*5,17,E.BIOMES[E.biomeAt(item.y)].color);ctx.shadowBlur=0;}
     }
     for(const s of game.snakes)drawSnake(s);
+    drawBoulders(x0,x1,y0,y1);drawCharges();
     game.horrors.forEach(drawHorror);
     for(const f of game.flares) {
       const x=f.x*T+18,y=f.y*T+18,g=ctx.createRadialGradient(x,y,4,x,y,150);g.addColorStop(0,'#f4ae6855');g.addColorStop(1,'#e49c5200');ctx.fillStyle=g;ctx.fillRect(x-150,y-150,300,300);
@@ -498,6 +606,7 @@
     const nether=p.y>E.GATE_Y,lit=!!game.refugeAt(p)||game.flares.some(f=>Math.hypot(f.x-p.x,f.y-p.y)<f.radius),radius=nether?(game.perks.has('lantern')?320:240)+(lit?100:0):Math.max(330,width*.65);
     const glow=ctx.createRadialGradient(px-camera.x,py-camera.y,nether?45:70,px-camera.x,py-camera.y,radius);
     glow.addColorStop(0,nether?'#08051200':'#07161000');glow.addColorStop(1,nether?'#080512e8':'#071610b0');ctx.fillStyle=glow;ctx.fillRect(0,0,width,height);
+    if(flash>0&&!reducedMotion){ctx.globalAlpha=Math.min(.55,flash*2);ctx.fillStyle=flashColor;ctx.fillRect(0,0,width,height);ctx.globalAlpha=1;}
     // Attack telegraphs stay readable even at the edge of the lamp's light.
     ctx.save();ctx.translate(-camera.x,-camera.y);horrorWarnings();ctx.restore();
     if(nether){
@@ -511,7 +620,8 @@
   }
   function frame(time) {
     const dt=Math.min(.05,(time-last)/1000);last=time;clock+=dt;
-    game.update(dt,direction());events();shake=Math.max(0,shake-dt);rockHint=Math.max(0,rockHint-dt);whisperHint=Math.max(0,whisperHint-dt);
+    game.update(dt,direction());events();shake=Math.max(0,shake-dt);flash=Math.max(0,flash-dt);
+    if(game.state==='playing'&&game.charges.length){fuseTimer-=dt;if(fuseTimer<=0){note(1700+Math.random()*500,.03,'square',.008);fuseTimer=Math.max(.06,Math.min(...game.charges.map(c=>c.fuse))*.12);}}rockHint=Math.max(0,rockHint-dt);whisperHint=Math.max(0,whisperHint-dt);
     pickSwing=Math.max(0,pickSwing-dt);digSoundTimer=Math.max(0,digSoundTimer-dt);haulPulse=Math.max(0,haulPulse-dt);comboPulse=Math.max(0,comboPulse-dt);
     elements.gems.style.color=haulPulse>0?'#fff3c9':'';
     elements.combo.style.transform=reducedMotion?'none':'scale('+(1+comboPulse*.25)+')';

@@ -2,10 +2,10 @@
 
 // Keep this cache separate from other games on the same GitHub Pages origin.
 const PREFIX = `deep-below-${new URL(self.registration.scope).pathname}-`;
-const CACHE = `${PREFIX}v7`;
+const CACHE = `${PREFIX}v8`;
 const FILES = [
-  './', './index.html', './style.css?v=7', './engine.js?v=7',
-  './game.js?v=7', './install.js?v=7', './manifest.webmanifest',
+  './', './index.html', './style.css?v=8', './engine.js?v=8',
+  './game.js?v=8', './install.js?v=8', './manifest.webmanifest',
   './icons/icon.svg', './icons/apple-touch-icon.png', './icons/icon-192.png', './icons/icon-512.png',
 ];
 const allowedPaths = new Set(FILES.map(file => new URL(file, self.registration.scope).pathname));

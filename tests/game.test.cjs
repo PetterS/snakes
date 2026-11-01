@@ -352,3 +352,133 @@ test('refuge light excludes snakes and rushing horrors, interrupts attacks, and 
   for(let i=0;i<30;i++){game.horrorStep(h,.05);assert.equal(game.refugeAt(h),null);}
   assert.equal(h.rush,0);
 });
+
+function cave(game) {
+  // A blank test cave: solid earth with explicit tunnels and nothing else.
+  game.start();game.snakes=[];game.horrors=[];game.items.clear();game.refuges=[];game.boulders=[];game.charges=[];game.flares=[];
+  game.grid=Array.from({length:HEIGHT},(_,y)=>Array.from({length:WIDTH},(_,x)=>y<=SURFACE?0:(x===0||x===WIDTH-1||y===HEIGHT-1)?2:1));
+  game.drainEvents();
+}
+const settle=(game,seconds)=>{for(let i=0;i<seconds/.05;i++)game.update(.05);};
+
+test('100 worlds keep resting boulders, two fossils, three missions, and every route open',()=>{
+  for(let seed=1;seed<=100;seed++){
+    const game=new Game(seed);
+    assert.ok(game.boulders.length>=4,`seed ${seed}: too few boulders`);
+    assert.ok(game.boulders.some(b=>game.snakes.some(s=>s.body.some(p=>p.x===b.x&&p.y===b.y+2))),`seed ${seed}: no boulder above a patrol`);
+    for(const b of game.boulders){assert.equal(game.grid[b.y][b.x],5);assert.ok(b.y>SURFACE+9);assert.ok(game.grid[b.y+1][b.x]!==0);assert.ok(Math.abs(b.y-GATE_Y)>=2);}
+    assert.ok(game.connected(),`seed ${seed}: boulders block a route`);
+    const fossils=[...game.items.values()].filter(i=>i.type==='fossil');
+    assert.equal(fossils.length,2,`seed ${seed}: missing fossils`);
+    assert.ok(fossils.some(f=>f.y<GATE_Y)&&fossils.some(f=>f.y>GATE_Y));
+    assert.equal(new Set(fossils.map(f=>f.id)).size,2);
+    assert.equal(game.bounties.length,3);assert.equal(new Set(game.bounties.map(b=>b.id)).size,3);
+    assert.equal(game.bounties.filter(b=>['crush','blast','slay'].includes(b.id)).length,1);
+    // Nothing tumbles on its own before the player disturbs the world.
+    game.start();game.player.invincible=1000;const before=game.boulders.map(b=>key(b.x,b.y)).sort();
+    for(let i=0;i<20;i++)game.update(.05);
+    assert.deepEqual(game.boulders.map(b=>key(b.x,b.y)).sort(),before,`seed ${seed}: boulder moved unprompted`);
+  }
+});
+
+test('fossils prefer unfound kinds and are only kept after a safe return',()=>{
+  const all=require('../engine.js').FOSSILS.map(f=>f.id);
+  const found=all.slice(0,10),game=new Game(31,{},{found});
+  const kinds=[...game.items.values()].filter(i=>i.type==='fossil').map(f=>f.id).sort();
+  assert.deepEqual(kinds,all.slice(10).sort());
+  const complete=new Game(32,{},{found:all});assert.equal([...complete.items.values()].filter(i=>i.type==='fossil').length,2);
+  game.start();const fossil=[...game.items.values()].find(i=>i.type==='fossil'&&i.y<GATE_Y),bag=game.player.bag;
+  game.collect(fossil);const event=game.drainEvents().find(e=>e.type==='fossil');
+  assert.ok(event.fresh);assert.equal(game.player.bag,bag+25);assert.deepEqual(game.finds,[fossil.id]);
+  game.player.y=SURFACE;game.finish(true);assert.deepEqual(game.result.finds,[fossil.id]);
+  const lost=new Game(33);lost.start();lost.collect([...lost.items.values()].find(i=>i.type==='fossil'));
+  lost.player.hp=1;lost.damage(1);assert.deepEqual(lost.result.finds,[]);assert.equal(lost.result.lostFinds.length,1);
+});
+
+test('a boulder waits while held up, wobbles, then falls and hurts only when it is already falling',()=>{
+  const game=new Game(40);cave(game);const p=game.player;
+  for(let y=20;y<=26;y++)game.grid[y][20]=0;game.grid[20][21]=0;
+  const b=game.addBoulder(20,19);Object.assign(p,{x:20,y:20,hp:5,invincible:0});
+  settle(game,1);assert.equal(b.y,19,'a resting boulder does not drop on the miner');assert.equal(p.hp,5);
+  game.step(1);assert.equal(p.x,21);
+  game.update(.05);game.update(.05);assert.equal(b.state,'wobble');assert.equal(b.y,19,'a wobble gives time to react');
+  settle(game,1);assert.equal(b.y,26);assert.equal(b.state,'rest');assert.equal(game.grid[19][20],0);assert.equal(game.grid[26][20],5);
+  assert.equal(game.drainEvents().filter(e=>e.type==='boulder-land').length,1);
+  // Walking under a boulder already in free fall costs a heart.
+  game.grid[27][20]=0;game.grid[28][20]=0;game.grid[29][20]=0;for(let x=20;x<=23;x++)game.grid[29][x]=0;
+  b.state='fall';Object.assign(p,{x:20,y:27,invincible:0});game.settleBoulders();
+  assert.equal(p.hp,4);assert.equal(b.y,26);assert.equal(b.state,'rest');
+});
+
+test('a falling boulder cuts a snake into diamonds, or kills it with a head hit',()=>{
+  const game=new Game(41);cave(game);
+  for(let x=10;x<=30;x++)game.grid[30][x]=0;for(let y=25;y<30;y++)game.grid[y][20]=0;
+  const body=Array.from({length:10},(_,i)=>({x:24-i,y:30}));
+  const s={body,previous:body.map(p=>({...p})),biome:1,nether:false,dir:1,stun:0,timer:0,interval:.3,notice:0};game.snakes=[s];
+  const b=game.addBoulder(20,25);b.state='fall';game.player.x=40;game.player.y=40;
+  for(let i=0;i<8;i++)game.settleBoulders();
+  assert.equal(b.y,30);assert.equal(s.body.length,4);assert.ok(s.stun>0);
+  const gems=[...game.items.values()].filter(i=>i.type==='gem');assert.ok(gems.length>=2);assert.ok(gems.every(g=>g.value===2&&!(g.x===20&&g.y===30)));
+  const ev=game.drainEvents().find(e=>e.type==='sever');assert.equal(ev.slain,false);assert.equal(ev.cause,'boulder');
+  assert.equal(game.stats.crushed,1);assert.equal(game.stats.slain,0);
+  // The stump is short now: the next hit near its head finishes it.
+  game.grid[29][23]=0;game.grid[28][23]=0;const c=game.addBoulder(23,28);c.state='fall';
+  for(let i=0;i<4;i++)game.settleBoulders();
+  assert.equal(game.snakes.length,0);assert.equal(game.stats.slain,1);
+  assert.ok(game.drainEvents().some(e=>e.type==='sever'&&e.slain));
+});
+
+test('boulders can be pushed sideways into open space, block otherwise, and shatter under the drill',()=>{
+  const game=new Game(42);cave(game);const p=game.player;
+  for(let x=10;x<=20;x++){game.grid[30][x]=0;}game.grid[31][18]=0;game.grid[32][18]=0;
+  const b=game.addBoulder(15,30);Object.assign(p,{x:14,y:30,dir:1});
+  assert.ok(game.step(1));assert.equal(b.x,16);assert.equal(p.x,15);
+  assert.ok(game.step(1));assert.ok(game.step(1));assert.equal(b.x,18);
+  settle(game,1);assert.equal(b.y,32,'pushed over a shaft it falls');
+  const wall=game.addBoulder(12,30);Object.assign(p,{x:13,y:30});game.grid[30][11]=1;
+  assert.equal(game.step(3),false);assert.equal(wall.x,12);
+  assert.ok(game.drainEvents().some(e=>e.type==='boulder-blocked'));
+  p.drillCooldown=0;game.drill();assert.ok(game.step(3));
+  assert.equal(game.boulderAt(12,30),null);assert.equal(p.x,12);
+  assert.ok(game.drainEvents().some(e=>e.type==='dig'&&e.rock));
+});
+
+test('dynamite lures with its fuse, then blasts rock, snakes and horrors but never the seal',()=>{
+  const game=new Game(43);cave(game);const p=game.player;
+  Object.assign(p,{x:29,y:GATE_Y-2,dynamite:2,invincible:0,hp:5});game.grid[GATE_Y-2][29]=0;
+  for(let x=0;x<WIDTH;x++)game.grid[GATE_Y][x]=3;game.grid[GATE_Y][GATE_X]=4;
+  for(let x=29;x<=36;x++)game.grid[GATE_Y-2][x]=0;game.grid[GATE_Y-1][28]=2;
+  const body=[{x:30,y:GATE_Y-2},{x:31,y:GATE_Y-2},{x:32,y:GATE_Y-2},{x:33,y:GATE_Y-2},{x:34,y:GATE_Y-2}];
+  game.snakes=[{body,previous:body.map(q=>({...q})),biome:2,nether:false,dir:3,stun:10,timer:0,interval:.3,notice:0}];
+  assert.ok(game.dynamite());assert.equal(p.dynamite,1);assert.equal(game.dynamite(),false,'one charge per tile');
+  game.update(.05);assert.ok(game.noise>0);assert.deepEqual(game.noiseSource,{x:29,y:GATE_Y-2});
+  p.x=36;settle(game,2.3);
+  assert.equal(game.charges.length,0);assert.equal(game.snakes.length,0);assert.equal(game.stats.blasted,1);assert.equal(game.stats.slain,1);
+  assert.equal(game.grid[GATE_Y-1][28],0,'rock is blown open');
+  for(let x=0;x<WIDTH;x++)assert.ok(game.grid[GATE_Y][x]===3||game.grid[GATE_Y][x]===4,'the seal survives');
+  assert.equal(p.hp,5,'a safe distance avoids the blast');
+  assert.ok(game.drainEvents().some(e=>e.type==='blast'));
+  // Standing on the charge hurts, unless the blasting power protects you.
+  p.x=33;p.y=GATE_Y-2;game.dynamite();settle(game,2.3);assert.equal(p.hp,3);
+  game.perks.add('blast');p.dynamite=1;p.invincible=0;game.dynamite();settle(game,2.3);assert.equal(p.hp,3);
+  game.gate.open=true;const h={x:31,y:GATE_Y+3,stun:0,charge:1,rush:0,cooldown:0,target:{x:30,y:GATE_Y+3}};game.horrors=[h];
+  game.charges=[{x:30,y:GATE_Y+2,fuse:0}];game.update(.05);assert.ok(h.stun>4);assert.equal(h.charge,0);
+});
+
+test('chests restock dynamite up to a cap that upgrades and the blasting power raise',()=>{
+  const game=new Game(44,{blast:2});assert.equal(game.player.dynamite,3);assert.equal(game.dynamiteCap(),5);
+  game.start();for(let i=0;i<4;i++)game.collect({x:20,y:20+i,type:'chest'});
+  assert.equal(game.player.dynamite,5);assert.equal(game.stats.chests,4);
+  game.state='choice';game.choices=[{id:'blast'}];game.choose('blast');assert.equal(game.dynamiteCap(),7);assert.equal(game.player.dynamite,7);
+});
+
+test('missions pay into the backpack once and are reported with the result',()=>{
+  const game=new Game(45);cave(game);
+  game.bounties=[{id:'chests',text:'',reward:30,goal:5,progress:0,done:false},{id:'haul',text:'',reward:40,goal:150,progress:0,done:false},{id:'crush',text:'',reward:40,goal:1,progress:0,done:false}];
+  for(let i=0;i<5;i++)game.collect({x:20,y:20+i,type:'chest'});
+  const bag=game.player.bag;game.update(.05);
+  assert.equal(game.player.bag,bag+30);assert.equal(game.bounties[0].done,true);
+  game.player.bag=150;game.update(.05);game.update(.05);assert.equal(game.player.bag,190);
+  assert.equal(game.drainEvents().filter(e=>e.type==='bounty').length,2);
+  game.player.y=SURFACE;game.finish(true);assert.deepEqual(game.result.bounties.map(b=>b.done),[true,true,false]);
+});

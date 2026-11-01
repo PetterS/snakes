@@ -43,5 +43,22 @@ button:active:not(:disabled){transform:translateY(1px)}
 .nether .panel{background:linear-gradient(145deg,#302038f5,#171022f5);border-color:#b382b766}
 .nether .panel p{color:#dac7de}.nether .choice{background:#120d2266;border-color:#a07eaa66}
 .nether .choice:hover{background:#49304e}.nether .choice small{color:#cdbbd4}
+.pill-row{flex-wrap:wrap}.dynamite .tool-icon{color:#ff9d6e}.nether .dynamite .tool-icon{color:#ffa98a}
+.shop{grid-template-columns:repeat(4,1fr)}
+.missions{margin:18px auto 4px;max-width:520px;text-align:left}.missions .eyebrow{display:block;text-align:center;margin-bottom:8px}
+.missions ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.missions li{display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:8px;background:#0b211966;border:1px solid #82956440;border-radius:8px;padding:8px 12px;font-size:12px;color:#d4dcc4}
+.missions li b{color:var(--gold);font-size:11px;white-space:nowrap}.missions li small{color:#a8b99a;font-size:10px;margin-left:4px}
+.missions .mark{color:#a8b99a;font-size:14px;text-align:center}.missions li.done{border-color:#d9c17a88;background:#3b3a1d55}.missions li.done .mark{color:#9be6a3}
+.missions li.done span:nth-child(2){color:#eadfae}
+.nether .missions li{background:#120d2266;border-color:#a07eaa55;color:#e2d1e6}
+.collection{margin-top:6px}.shelf{display:grid;grid-template-columns:repeat(12,1fr);gap:6px}
+.relic-slot{aspect-ratio:1;display:grid;place-items:center;border-radius:8px;border:1px dashed #82956455;color:#5f7360;font:16px Georgia,serif;min-width:0}
+.relic-slot.owned{border:1px solid #d9b56d88;background:radial-gradient(circle at 40% 35%,#6b502b,#2b2214);color:#ffd894;box-shadow:inset 0 0 8px #0006}
+.relic-slot.fresh{box-shadow:0 0 0 2px var(--gold),0 0 18px #ffd28f88}
+.new-finds{color:var(--gold)!important;font-weight:bold}
+@media(max-width:700px){.run-stats{gap:12px}.run-stats strong{font-size:24px}.run-stats small{font-size:8px}.shop{grid-template-columns:repeat(2,1fr)}.shelf{grid-template-columns:repeat(6,1fr)}.missions li{font-size:11px;padding:7px 9px}
+  .actions{max-width:calc(100% - 80px)}.tool{flex-direction:column;justify-content:center;gap:2px;min-width:92px;min-height:76px;padding:8px 6px;text-align:center}
+  .tool-icon{font-size:22px;line-height:1}.tool small{font-size:6.5px;margin-top:3px}.tool b{padding:1px 5px;margin-left:2px}.pill-row{flex-wrap:wrap}}
 @media(max-width:700px){.mission #relics{font-size:15px;letter-spacing:3px}.chapter strong{font-size:25px}.mission #objective{max-width:205px}.haul{padding-bottom:25px}#combo{left:10px;right:10px;bottom:5px;font-size:8px}}
 @media(max-width:700px){.overlay{padding:calc(env(safe-area-inset-top,0px) + 12px) calc(env(safe-area-inset-right,0px) + 12px) calc(env(safe-area-inset-bottom,0px) + 12px) calc(env(safe-area-inset-left,0px) + 12px)}}

@@ -20,13 +20,42 @@
     {id:'flares',icon:'✦',name:'Eldvakt',text:'Få fyra bloss. Varje bloss bedövar ormar i ett mycket större område.'},
     {id:'lantern',icon:'☼',name:'Själslykta',text:'Se längre i mörkret. Avslöja dolda rum och reliker på större avstånd.'},
     {id:'ward',icon:'◈',name:'Skuggmantel',text:'Dödsrikets bett och fasor tar bara ett hjärta. Skyddet efter en träff varar längre.'},
-    {id:'supplies',icon:'✧',name:'Sista glöden',text:'Få tre bloss och full hälsa. Kistor ger hädanefter två bloss och två hjärtan.'}
+    {id:'supplies',icon:'✧',name:'Sista glöden',text:'Få tre bloss och full hälsa. Kistor ger hädanefter två bloss och två hjärtan.'},
+    {id:'blast',icon:'✸',name:'Bergsprängare',text:'Få två dynamitgubbar. Explosionerna blir större och skadar aldrig dig.'}
   ];
   const UPGRADES = [
     {id:'pick',name:'Diamanthacka',text:'Gräv 12 % snabbare per nivå.',cost:35},
     {id:'boots',name:'Turboborr',text:'Kortare laddningstid för borren.',cost:45},
-    {id:'armor',name:'Förstärkt jacka',text:'Börja med ett extra hjärta per nivå.',cost:50}
+    {id:'armor',name:'Förstärkt jacka',text:'Börja med ett extra hjärta per nivå.',cost:50},
+    {id:'blast',name:'Sprängväska',text:'Börja med en extra dynamit per nivå.',cost:40}
   ];
+  // Rare finds kept forever in the camp collection.
+  const FOSSILS = [
+    {id:'trilobit',icon:'❂',name:'Trilobiten',text:'Ett havsdjur från tiden innan bergen fanns.'},
+    {id:'ammonit',icon:'✺',name:'Ammonitsnäckan',text:'En spiral som någon har vridit av sten.'},
+    {id:'tand',icon:'▲',name:'Grottbjörnens tand',text:'Lång som ett finger och fortfarande vass.'},
+    {id:'mynt',icon:'◉',name:'Det gröna myntet',text:'Präglat med en kung som ingen minns.'},
+    {id:'lykta',icon:'☼',name:'Gruvarens lykta',text:'Någon annan har gått här före dig.'},
+    {id:'fjaril',icon:'❦',name:'Den förstenade fjärilen',text:'Vingarna skimrar fortfarande.'},
+    {id:'nyckel',icon:'✠',name:'Den svarta nyckeln',text:'Den passar inget lås du har sett.'},
+    {id:'flojt',icon:'♪',name:'Benflöjten',text:'Grottvinden spelar på den när ingen lyssnar.'},
+    {id:'krona',icon:'♛',name:'Ormdrottningens krona',text:'Liten nog för ett ormhuvud.'},
+    {id:'oga',icon:'◎',name:'Det glasartade ögat',text:'Det följer dig med blicken.'},
+    {id:'hjarta',icon:'♥',name:'Stenhjärtat',text:'Det slår ett slag i timmen.'},
+    {id:'stjarna',icon:'✶',name:'Den fallna stjärnan',text:'Varm att hålla i, trots djupet.'}
+  ];
+  // Every expedition offers three optional missions; one always teaches the new tactics.
+  const BOUNTIES = [
+    {id:'crush',text:'Låt ett stenblock krossa en orm.',reward:40,goal:1,tactic:true},
+    {id:'blast',text:'Spräng en orm med dynamit.',reward:40,goal:1,tactic:true},
+    {id:'slay',text:'Besegra två ormar helt.',reward:70,goal:2,tactic:true},
+    {id:'combo',text:'Nå ×4 i en diamantsvit.',reward:35,goal:1},
+    {id:'chests',text:'Öppna fem förrådskistor.',reward:30,goal:5},
+    {id:'fossil',text:'Gräv fram ett fornfynd.',reward:30,goal:1},
+    {id:'gate',text:'Kliv genom Nattporten.',reward:50,goal:1},
+    {id:'haul',text:'Bär 150 diamanter samtidigt.',reward:40,goal:150}
+  ];
+  const BOULDER_TICK = .08;
   const TRAILS = [
     {name:'bleka fjädrar',color:'#e0b6ed',hint:'Bleka fjädrar visar en väg genom berget. Följ spetsarna; ljuset tätnar nära reliken.'},
     {name:'ögonristningar',color:'#bcbaff',hint:'Ögonristningar vakar i stenen. Deras blick visar vägen till nästa relik.'},
@@ -37,14 +66,17 @@
   const biomeAt = y => y<32?0:y<62?1:y<=GATE_Y?2:y<124?3:y<154?4:5;
   const key = (x,y) => y*WIDTH+x;
   class Game {
-    constructor(seed=Date.now(), upgrades={}) {
-      this.seed=seed;this.random=rng(seed);this.upgrades={pick:0,boots:0,armor:0,...upgrades};
+    constructor(seed=Date.now(), upgrades={}, options={}) {
+      this.seed=seed;this.random=rng(seed);this.upgrades={pick:0,boots:0,armor:0,blast:0,...upgrades};
+      this.found=Array.isArray(options.found)?options.found.slice():[];this.finds=[];
+      this.boulders=[];this.charges=[];this.boulderTimer=0;this.cluePath=new Set();this.boulderExplained=false;
+      this.stats={crushed:0,blasted:0,slain:0,chests:0,maxBag:0};this.bounties=[];
       this.width=WIDTH;this.height=HEIGHT;this.state='ready';this.time=0;this.events=[];
       this.grid=Array.from({length:HEIGHT},(_,y)=>Array.from({length:WIDTH},(_,x)=>y<=SURFACE?0:(x===0||x===WIDTH-1||y===HEIGHT-1)?2:1));
       this.seen=new Uint8Array(WIDTH*HEIGHT);this.items=new Map();this.snakes=[];this.horrors=[];this.flares=[];this.perks=new Set();this.choices=[];
       this.encounters=[];this.shortcuts=new Set();this.refuges=[];this.clues=[];this.noiseSource=null;this.tacticsExplained=false;
       this.gate={x:GATE_X,y:GATE_Y,open:false};this.enteredNether=false;
-      this.player={x:29,y:SURFACE,oldX:29,oldY:SURFACE,blend:1,dir:2,hp:5+this.upgrades.armor,maxHp:5+this.upgrades.armor,bag:0,flares:3,relics:0,invincible:0,drillCooldown:0,drilling:0};
+      this.player={x:29,y:SURFACE,oldX:29,oldY:SURFACE,blend:1,dir:2,hp:5+this.upgrades.armor,maxHp:5+this.upgrades.armor,bag:0,flares:3,dynamite:1+this.upgrades.blast,relics:0,invincible:0,drillCooldown:0,drilling:0};
       this.moveTimer=0;this.noise=0;this.combo=0;this.comboTimer=0;this.maxCombo=0;this.deepest=0;this.lastBiome=0;this.threat=false;this.result=null;
       this.generate();this.reveal(10);
     }
@@ -87,7 +119,76 @@
       this.generateRefuges();
       this.generateClues();
       this.generateVeins();
+      this.generateBoulders();
+      this.generateFossils();
+      this.chooseBounties();
     }
+    reservedTile(x,y) {
+      return y<14||x<3||x>WIDTH-4||y>HEIGHT-4||Math.abs(y-GATE_Y)<2||(Math.abs(y-GATE_Y)<8&&Math.abs(x-GATE_X)<8)||
+        this.items.has(key(x,y))||this.shortcuts.has(key(x,y))||this.cluePath.has(key(x,y))||
+        this.relics.some(r=>Math.abs(r.x-x)<=7&&y>=r.y-9&&y<=r.y+5)||this.relics.slice(0,3).some(r=>x===r.x&&y<=r.y)||
+        this.refuges.some(r=>distance(r,{x,y})<=r.radius+1.5)||this.snakes.some(s=>s.body.some(p=>p.x===x&&p.y===y));
+    }
+    addBoulder(x,y) {const b={x,y,ox:x,oy:y,blend:1,speed:BOULDER_TICK,state:'rest',timer:0,fell:0,orig:this.grid[y][x]};this.grid[y][x]=5;this.boulders.push(b);return b;}
+    boulderAt(x,y) {return this.boulders.find(b=>b.x===x&&b.y===y)||null;}
+    removeBoulder(b) {this.boulders=this.boulders.filter(o=>o!==b);if(this.grid[b.y]?.[b.x]===5)this.grid[b.y][b.x]=0;}
+    connected() {
+      // Gate treated as open: every relic, rest stop and the way home must stay diggable.
+      const gate=this.grid[GATE_Y][GATE_X];this.grid[GATE_Y][GATE_X]=0;
+      const seen=new Uint8Array(WIDTH*HEIGHT),queue=[key(29,SURFACE)];seen[queue[0]]=1;
+      for(let q=0;q<queue.length;q++){const k=queue[q],x=k%WIDTH,y=Math.floor(k/WIDTH);
+        for(const d of DIRS){const nx=x+d.x,ny=y+d.y,n=key(nx,ny);if(nx<1||nx>=WIDTH-1||ny<SURFACE||ny>=HEIGHT-1||seen[n]||this.grid[ny][nx]>=2)continue;seen[n]=1;queue.push(n);}}
+      this.grid[GATE_Y][GATE_X]=gate;
+      return [...this.relics,...this.refuges].every(t=>seen[key(t.x,t.y)]);
+    }
+    generateBoulders() {
+      const solid=(x,y)=>this.grid[y]?.[x]===1||this.grid[y]?.[x]===2;
+      // A ceiling boulder above each patrol, held up by a single diggable tile.
+      for(const s of this.snakes) {
+        const top=Math.min(...s.body.map(p=>p.y)),row=s.body.filter(p=>p.y===top);
+        for(let n=0;n<Math.min(2,row.length);n++) {
+          const p=row[Math.floor(this.random()*row.length)];
+          if(this.grid[top-2]?.[p.x]===5||!solid(p.x,top-1)||!solid(p.x,top-2)||!solid(p.x,top-3)||this.reservedTile(p.x,top-1)||this.reservedTile(p.x,top-2))continue;
+          this.grid[top-1][p.x]=1;this.addBoulder(p.x,top-2);
+        }
+      }
+      // Loose boulders rest on cave floors, ready to be pushed into a shaft.
+      for(let n=0,placed=0;n<1500&&placed<14;n++) {
+        const x=3+Math.floor(this.random()*(WIDTH-6)),y=14+Math.floor(this.random()*(HEIGHT-20));
+        if(this.grid[y][x]!==0||!solid(x,y+1)||this.grid[y-1][x]!==0||this.grid[y][x-1]!==0||this.grid[y][x+1]!==0||this.reservedTile(x,y))continue;
+        this.addBoulder(x,y);placed++;
+      }
+      while(this.boulders.length&&!this.connected()){const b=this.boulders.pop();this.grid[b.y][b.x]=b.orig;}
+    }
+    generateFossils() {
+      const fresh=FOSSILS.filter(f=>!this.found.includes(f.id)),pool=fresh.length>=2?fresh:FOSSILS.slice();
+      for(const [top,bottom] of [[18,88],[100,176]]) {
+        const kind=pool.splice(Math.floor(this.random()*pool.length),1)[0];
+        for(let n=0;n<400;n++) {
+          const x=3+Math.floor(this.random()*(WIDTH-6)),y=top+Math.floor(this.random()*(bottom-top));
+          if(this.grid[y][x]!==1||this.reservedTile(x,y))continue;
+          this.place(x,y,'fossil',0,{id:kind.id,name:kind.name});break;
+        }
+      }
+    }
+    chooseBounties() {
+      const tactics=BOUNTIES.filter(b=>b.tactic),others=BOUNTIES.filter(b=>!b.tactic);
+      const picks=[tactics[Math.floor(this.random()*tactics.length)]];
+      while(picks.length<3)picks.push(others.splice(Math.floor(this.random()*others.length),1)[0]);
+      this.bounties=picks.map(b=>({id:b.id,text:b.text,reward:b.reward,goal:b.goal,progress:0,done:false}));
+    }
+    bountyProgress(id) {
+      const s=this.stats;
+      return {crush:s.crushed,blast:s.blasted,slay:s.slain,combo:this.maxCombo>=15?1:0,chests:s.chests,fossil:this.finds.length,gate:this.enteredNether?1:0,haul:s.maxBag}[id]||0;
+    }
+    checkBounties() {
+      this.stats.maxBag=Math.max(this.stats.maxBag,this.player.bag);
+      for(const b of this.bounties){
+        if(b.done)continue;b.progress=Math.min(b.goal,this.bountyProgress(b.id));
+        if(b.progress>=b.goal){b.done=true;this.player.bag+=b.reward;this.emit('bounty',{text:b.text,reward:b.reward});}
+      }
+    }
+    dynamiteCap() {return 3+this.upgrades.blast+(this.perks.has('blast')?2:0);}
     generateEncounters() {
       const occupied=new Set(this.snakes.flatMap(s=>s.body.map(p=>key(p.x,p.y))));
       for(const r of this.relics) {
@@ -158,7 +259,7 @@
         // Erase any backtracking at a rest stop so two marks never disagree on direction.
         const simple=[],visited=new Map();
         for(const p of path){const k=key(p.x,p.y);if(visited.has(k)){while(simple.length>visited.get(k)+1){const old=simple.pop();visited.delete(key(old.x,old.y));}}else{visited.set(k,simple.length);simple.push(p);}}
-        path=simple;
+        path=simple;for(const p of path)this.cluePath.add(key(p.x,p.y));
         for(let j=0;j<path.length-1;j+=3) {
           const p=path[j],next=path[j+1],dir=DIRS.findIndex(d=>p.x+d.x===next.x&&p.y+d.y===next.y);
           this.clues.push({...p,dir,relic:i,strength:1-Math.min(1,distance(p,r)/24)});
@@ -283,6 +384,79 @@
       this.snakes.forEach(s=>{if(s.body.some(b=>distance(b,p)<radius))s.stun=s.nether?2.5:5;});
       this.horrors.forEach(h=>{if(distance(h,p)<radius){h.stun=3;h.charge=0;h.rush=0;h.target=null;}});return true;
     }
+    dynamite() {
+      const p=this.player;if(this.state!=='playing'||p.dynamite<1||this.charges.some(c=>c.x===p.x&&c.y===p.y))return false;
+      p.dynamite--;this.charges.push({x:p.x,y:p.y,fuse:2.2});this.emit('dynamite',{x:p.x,y:p.y});return true;
+    }
+    explode(c) {
+      const p=this.player,radius=this.perks.has('blast')?3.2:2.3,reach=radius+.3;
+      for(let y=c.y-4;y<=c.y+4;y++)for(let x=c.x-4;x<=c.x+4;x++) {
+        if(x<1||x>=WIDTH-1||y<=SURFACE||y>=HEIGHT-1||distance({x,y},c)>radius)continue;
+        // The seal, gate and world border are immune; earth, rock and boulders are not.
+        const t=this.grid[y][x];
+        if(t===5){const b=this.boulderAt(x,y);if(b)this.removeBoulder(b);}
+        if(t===1||t===2||t===5)this.grid[y][x]=0;
+        if(this.gate.open||y<=GATE_Y)this.seen[key(x,y)]=1;
+      }
+      for(const s of [...this.snakes]) {
+        const i=s.body.findIndex(b=>distance(b,c)<=reach);
+        if(i>=0)this.sever(s,i,'blast');
+        else if(s.body.some(b=>distance(b,c)<radius+3))s.stun=Math.max(s.stun,s.nether?2:3);
+      }
+      this.horrors.forEach(h=>{if(distance(h,c)<radius+3){h.stun=6;h.charge=0;h.rush=0;h.target=null;}});
+      this.makeNoise(c.x,c.y,4);this.emit('blast',{x:c.x,y:c.y,radius});
+      if(distance(p,c)<=reach&&!this.perks.has('blast'))this.damage(2,'blast');
+    }
+    sever(s,index,cause,skip=null) {
+      // Cutting a snake turns its lost segments into a line of diamonds; a head hit ends it.
+      const slain=index<4,lost=slain?s.body:s.body.slice(index),hit=s.body[index],value=s.biome+1;
+      let count=0;
+      lost.forEach((seg,j)=>{
+        const k=key(seg.x,seg.y);
+        if(j%2===0&&k!==skip&&this.grid[seg.y][seg.x]===0&&!this.items.has(k)){this.place(seg.x,seg.y,'gem',value);count++;}
+      });
+      if(slain){this.snakes.splice(this.snakes.indexOf(s),1);this.stats.slain++;}
+      else {s.body=s.body.slice(0,index);s.previous=s.previous.slice(0,index);s.stun=Math.max(s.stun,3);s.memory=null;s.alert=false;s.notice=0;s.mode='patrol';}
+      if(cause==='boulder')this.stats.crushed++;else this.stats.blasted++;
+      this.emit('sever',{x:hit.x,y:hit.y,cause,slain,count,biome:s.biome});
+    }
+    settleBoulders() {
+      const p=this.player,free=(x,y)=>y<HEIGHT-1&&this.grid[y]?.[x]===0&&!this.items.has(key(x,y)),playerAt=(x,y)=>p.x===x&&p.y===y;
+      this.boulders=this.boulders.filter(b=>this.grid[b.y]?.[b.x]===5);
+      this.boulders.sort((a,b)=>b.y-a.y);
+      for(const b of this.boulders) {
+        if(free(b.x,b.y+1)) {
+          if(playerAt(b.x,b.y+1)){
+            // A resting boulder waits on your helmet; a falling one does not.
+            if(b.state==='fall'){this.damage(p.y>GATE_Y?2:1,'boulder');this.land(b);}
+            continue;
+          }
+          if(b.state==='rest'){b.state='wobble';b.timer=.32;continue;}
+          if(b.state==='wobble'){b.timer-=BOULDER_TICK;if(b.timer>0)continue;b.state='fall';}
+          this.moveBoulder(b,b.x,b.y+1);
+        } else {
+          let rolled=false;
+          if(this.grid[b.y+1]?.[b.x]===5&&b.state!=='wobble') {
+            for(const side of (b.x%2?[-1,1]:[1,-1])) {
+              const x=b.x+side;
+              if(free(x,b.y)&&free(x,b.y+1)&&!playerAt(x,b.y)&&!playerAt(x,b.y+1)&&!this.snakes.some(s=>s.body.some(q=>q.x===x&&q.y===b.y))){this.moveBoulder(b,x,b.y);b.state='fall';rolled=true;break;}
+            }
+          }
+          if(!rolled&&b.state==='fall')this.land(b);
+          else if(!rolled&&b.state==='wobble')b.state='rest';
+        }
+      }
+    }
+    moveBoulder(b,x,y) {
+      const k=key(x,y);
+      for(const s of [...this.snakes]){const i=s.body.findIndex(q=>q.x===x&&q.y===y);if(i>=0){this.sever(s,i,'boulder',k);break;}}
+      this.grid[b.y][b.x]=0;b.ox=b.x;b.oy=b.y;b.x=x;b.y=y;this.grid[y][x]=5;b.blend=0;b.speed=BOULDER_TICK;
+      if(y!==b.oy)b.fell++;
+    }
+    land(b) {
+      if(b.fell>0){this.emit('boulder-land',{x:b.x,y:b.y,heavy:b.fell>=3});this.makeNoise(b.x,b.y,1.5);}
+      b.state='rest';b.fell=0;
+    }
     damage(amount=1,source='snake') {
       const p=this.player;if(p.invincible>0||this.state!=='playing')return;
       p.hp=Math.max(0,p.hp-(this.perks.has('ward')?1:amount));p.invincible=this.perks.has('ward')?3.4:2.4;this.combo=0;this.comboTimer=0;this.emit('hurt',{source});
@@ -303,7 +477,11 @@
         p.bag+=amount;this.emit('gem',{x:item.x,y:item.y,amount,multiplier,combo:this.combo,milestone:multiplier>previousMultiplier});
       } else if(item.type==='chest') {
         const amount=5+biomeAt(item.y)*5,supply=this.perks.has('supplies')?2:1;p.bag+=amount;p.flares=Math.min(12,p.flares+supply);p.hp=Math.min(p.maxHp,p.hp+supply);
-        this.emit('chest',{x:item.x,y:item.y,amount,supply});
+        const before=p.dynamite;p.dynamite=Math.min(this.dynamiteCap(),p.dynamite+1);this.stats.chests++;
+        this.emit('chest',{x:item.x,y:item.y,amount,supply,dynamite:p.dynamite-before});
+      } else if(item.type==='fossil') {
+        const amount=item.y>GATE_Y?60:25;p.bag+=amount;this.finds.push(item.id);
+        this.emit('fossil',{x:item.x,y:item.y,id:item.id,name:item.name,amount,fresh:!this.found.includes(item.id)});
       } else if(item.type==='relic') {
         const relic=this.relics[item.value];if(!relic||relic.taken)return;
         relic.taken=true;p.relics++;const amount=item.value>=3?90:30;p.bag+=amount;p.hp=Math.min(p.maxHp,p.hp+2);p.invincible=3;
@@ -323,13 +501,22 @@
       if(id==='flares')p.flares=Math.min(12,p.flares+4);
       if(id==='supplies'){p.flares=Math.min(12,p.flares+3);p.hp=p.maxHp;}
       if(id==='lantern')this.reveal();
+      if(id==='blast')p.dynamite=Math.min(this.dynamiteCap(),p.dynamite+2);
       this.choices=[];this.state='playing';this.emit('perk',{id});return true;
     }
     step(dir) {
       if(this.state!=='playing')return false;
       const p=this.player;const d=DIRS[dir],x=p.x+d.x,y=p.y+d.y;p.dir=dir;
       if(x<1||x>=WIDTH-1||y<SURFACE||y>=HEIGHT-1)return false;
-      if(this.grid[y][x]>=3){this.emit('sealed',{gate:x===GATE_X});return false;}
+      if(this.grid[y][x]===3||this.grid[y][x]===4){this.emit('sealed',{gate:x===GATE_X});return false;}
+      if(this.grid[y][x]===5) {
+        const b=this.boulderAt(x,y),bx=x+d.x;
+        if(p.drilling){if(b)this.removeBoulder(b);this.grid[y][x]=2;}
+        else if(b&&d.y===0&&b.state!=='fall'&&bx>0&&bx<WIDTH-1&&this.grid[y][bx]===0&&!this.items.has(key(bx,y))&&!this.snakes.some(s=>s.body.some(q=>q.x===bx&&q.y===y))) {
+          this.grid[y][x]=0;this.grid[y][bx]=5;Object.assign(b,{ox:x,oy:y,x:bx,blend:0,speed:.16,state:'rest'});
+          if(!this.perks.has('quiet'))this.makeNoise(bx,y,1.2);this.emit('push',{x:bx,y,dir});
+        } else {this.emit('boulder-blocked');return false;}
+      }
       if(this.grid[y][x]===2&&!p.drilling){this.emit('rock');return false;}
       if(this.grid[y][x]!==0){const rock=this.grid[y][x]===2;this.grid[y][x]=0;if(p.drilling||!this.perks.has('quiet'))this.makeNoise(x,y,p.drilling?3:1.2);this.emit('dig',{x,y,dir,rock,drill:p.drilling>0});}
       p.oldX=p.x;p.oldY=p.y;p.x=x;p.y=y;p.blend=0;this.deepest=Math.max(this.deepest,(y-SURFACE)*2);
@@ -343,6 +530,8 @@
       const clue=this.nearbyClue();
       if(clue&&!refuge&&!this.relics[clue.relic].trailFound){this.relics[clue.relic].trailFound=true;this.emit('trail',{index:clue.relic-3});}
       if(!this.tacticsExplained&&this.encounters.some(e=>distance(e,p)<3)){this.tacticsExplained=true;this.emit('tactics');}
+      else if(!this.boulderExplained&&this.boulders.some(b=>distance(b,p)<5&&this.seen[key(b.x,b.y)])){this.boulderExplained=true;this.emit('boulders');}
+      this.checkBounties();
       if(y===SURFACE&&p.relics===6)this.finish(true);
       return true;
     }
@@ -425,6 +614,14 @@
       }
       if(this.state!=='playing')return;
       for(const f of this.flares)f.life-=dt;this.flares=this.flares.filter(f=>f.life>0);
+      for(const b of this.boulders)b.blend=Math.min(1,b.blend+dt/b.speed);
+      this.boulderTimer+=dt;
+      while(this.boulderTimer>=BOULDER_TICK&&this.state==='playing'){this.boulderTimer-=BOULDER_TICK;this.settleBoulders();}
+      // A hissing fuse is the loudest thing in the cave: snakes come to look.
+      for(const c of this.charges){c.fuse-=dt;if(c.fuse>0){this.noise=Math.max(this.noise,.3);this.noiseSource={x:c.x,y:c.y};}}
+      const lit=this.charges.filter(c=>c.fuse<=0);this.charges=this.charges.filter(c=>c.fuse>0);
+      for(const c of lit)if(this.state==='playing')this.explode(c);
+      if(this.state!=='playing')return;
       for(const s of this.snakes) {
         s.notice=Math.max(0,(s.notice||0)-dt);s.stun=Math.max(0,s.stun-dt);if(s.stun>0)continue;
         s.interval=(s.nether?(s.alert?.175:.25):(s.alert?.21:.30))-(p.relics>=3?.025:0)-Math.max(0,p.relics-3)*.005;s.timer+=dt;
@@ -432,14 +629,16 @@
       }
       for(const h of this.horrors)this.horrorStep(h,dt);
       this.threat=!this.refugeAt(p)&&(this.snakes.some(s=>s.alert&&s.stun<=0&&distance(s.body[0],p)<12)||this.horrors.some(h=>p.y>GATE_Y&&h.stun<=0&&distance(h,p)<10));this.collision();
+      if(this.state==='playing')this.checkBounties();
     }
     finish(escaped) {
       if(this.result)return;const p=this.player;
       if(escaped&&p.y>SURFACE)return;
-      this.result={escaped,complete:escaped&&p.relics===6,upperComplete:escaped&&p.relics>=3,haul:p.bag,earned:escaped?p.bag:Math.floor(p.bag*.25),relics:p.relics,depth:this.deepest,combo:this.maxCombo,seconds:Math.floor(this.time)};
+      this.result={escaped,complete:escaped&&p.relics===6,upperComplete:escaped&&p.relics>=3,haul:p.bag,earned:escaped?p.bag:Math.floor(p.bag*.25),relics:p.relics,depth:this.deepest,combo:this.maxCombo,seconds:Math.floor(this.time),
+        bounties:this.bounties.map(b=>({...b})),finds:escaped?this.finds.slice():[],lostFinds:escaped?[]:this.finds.slice(),slain:this.stats.slain};
       this.state='ended';p.drilling=0;this.emit('end',this.result);
     }
   }
-  const api={Game,WIDTH,HEIGHT,SURFACE,GATE_X,GATE_Y,DIRS,BIOMES,PERKS,UPGRADES,TRAILS,biomeAt,key,rng};
+  const api={Game,WIDTH,HEIGHT,SURFACE,GATE_X,GATE_Y,DIRS,BIOMES,PERKS,UPGRADES,TRAILS,FOSSILS,BOUNTIES,BOULDER_TICK,biomeAt,key,rng};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.DeepBelow=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

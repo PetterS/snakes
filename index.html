@@ -11,7 +11,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="style.css?v=7">
+  <link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
   <main id="expedition">
@@ -32,6 +32,7 @@
       <button id="bank" class="bank hidden">↑ Säkra fynden <small>ÅTERVÄND TILL LÄGRET</small></button>
       <button id="drill" class="tool drill"><span class="tool-icon">↯</span><span>Turboborra<small id="drill-label">REDO</small></span><span class="recharge" id="recharge"></span></button>
       <button id="flare" class="tool"><span class="tool-icon">✦</span><span>Bloss <b id="flare-count">3</b><small>SKINGRA MÖRKRET · F</small></span></button>
+      <button id="dynamite" class="tool dynamite"><span class="tool-icon">✸</span><span>Dynamit <b id="dynamite-count">1</b><small>SPRÄNG · E</small></span></button>
     </div>
     <div id="overlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="panel-title"><section id="panel" class="panel"></section></div>
   </main>
@@ -51,8 +52,8 @@
       <p>Sparade fynd och uppgraderingar lagras på den här enheten. En pågående expedition sparas inte när appen stängs.</p>
     </details>
   </template>
-  <script src="engine.js?v=7"></script>
-  <script src="install.js?v=7"></script>
-  <script src="game.js?v=7"></script>
+  <script src="engine.js?v=8"></script>
+  <script src="install.js?v=8"></script>
+  <script src="game.js?v=8"></script>
 </body>
 </html>

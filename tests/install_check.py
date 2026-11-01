@@ -22,7 +22,7 @@ INSTRUMENT = """(() => {
     set: value => {
       const Original = value.Game;
       value.Game = class extends Original {
-        constructor(seed, upgrades) { super(11223344, upgrades); window.testGame = this; }
+        constructor(seed, upgrades, options) { super(11223344, upgrades, options); window.testGame = this; }
       };
       engine = value;
     }
@@ -176,14 +176,14 @@ def check(browser):
             tap(page, cdp, "#pause")
 
             # A worker update must preserve a running expedition and other apps' caches.
-            saved = {"bank": 123, "best": 45, "runs": 2, "wins": 1, "upgrades": {"pick": 1, "boots": 2, "armor": 0}}
+            saved = {"bank": 123, "best": 45, "runs": 2, "wins": 1, "upgrades": {"pick": 1, "boots": 2, "armor": 0, "blast": 1}, "finds": ["ammonit"]}
             page.evaluate("saved=>localStorage.setItem('deep-below-camp',JSON.stringify(saved))", saved)
             page.evaluate("caches.open('bygga-unrelated-test')")
             position = page.evaluate("[testGame.player.x,testGame.player.y,testGame.player.flares]")
             sw = served / "sw.js"
-            sw.write_text(sw.read_text().replace("${PREFIX}v7", "${PREFIX}v8").replace("?v=7", "?v=8"))
+            sw.write_text(sw.read_text().replace("${PREFIX}v8", "${PREFIX}v9").replace("?v=8", "?v=9"))
             html = served / "index.html"
-            html.write_text(html.read_text().replace("?v=7", "?v=8"))
+            html.write_text(html.read_text().replace("?v=8", "?v=9"))
             game = served / "game.js"
             game.write_text(game.read_text() + "\nwindow.testUpdatedBundle = true;\n")
             page.evaluate("""async()=>{
@@ -196,7 +196,7 @@ def check(browser):
             assert page.evaluate("[testGame.player.x,testGame.player.y,testGame.player.flares]") == position
             assert page.evaluate("testGame.state") == "paused"
             keys = page.evaluate("caches.keys()")
-            assert "deep-below-/snakes/-v8" in keys and "deep-below-/snakes/-v7" not in keys, keys
+            assert "deep-below-/snakes/-v9" in keys and "deep-below-/snakes/-v8" not in keys, keys
             assert "bygga-unrelated-test" in keys, keys
             page.reload()
             page.wait_for_function("window.testUpdatedBundle === true")

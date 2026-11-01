@@ -15,7 +15,7 @@ INSTRUMENT = """(() => {
     get: () => engine,
     set: value => {
       const Original = value.Game;
-      value.Game = class extends Original { constructor(seed, upgrades) { super(11223344, upgrades); window.testGame = this; } };
+      value.Game = class extends Original { constructor(seed, upgrades, options) { super(11223344, upgrades, options); window.testGame = this; } };
       engine = value;
     }
   });
@@ -111,7 +111,7 @@ def check(browser, name):
           const c=document.querySelector('#game').getBoundingClientRect();
           return {canvas:[c.width,c.height], viewport:[innerWidth,innerHeight],
             overflow:document.documentElement.scrollWidth>innerWidth || document.documentElement.scrollHeight>innerHeight,
-            tools:['#drill','#flare'].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return {w:r.width,h:r.height,x:r.x,y:r.y};})};
+            tools:['#drill','#flare','#dynamite'].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return {w:r.width,h:r.height,x:r.x,y:r.y};})};
         }""")
         assert geometry["canvas"] == geometry["viewport"]
         assert not geometry["overflow"]
@@ -376,6 +376,108 @@ def check_exploration(browser):
     print("PASS exploration: tactical drill passage, refuge safety/layouts, three clue styles without map spoilers, snake warning and lost pursuit; no page errors")
 
 
+def check_rockfall(browser):
+    context = browser.new_context(viewport={"width": 1024, "height": 768},
+                                  device_scale_factor=2, is_mobile=True, has_touch=True)
+    try:
+        rockfall_steps(context)
+    finally:
+        context.close()
+
+
+def rockfall_steps(context):
+    context.add_init_script(INSTRUMENT)
+    page = context.new_page()
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(URL)
+    page.evaluate("localStorage.removeItem('deep-below-camp')")
+    page.reload()
+    page.locator("#start").tap()
+    page.wait_for_function("testGame.state === 'playing'")
+    # A boulder held up by the miner falls once the miner steps aside, cutting a passing snake.
+    page.evaluate("""() => {
+      const g=testGame;g.horrors=[];g.items.clear();g.refuges=[];g.boulders=[];g.charges=[];
+      for(let x=8;x<=40;x++)for(let y=26;y<=32;y++)g.grid[y][x]=1;
+      for(let x=10;x<=38;x++)g.grid[30][x]=0;g.grid[29][20]=0;g.grid[29][21]=0;
+      g.addBoulder(20,28);
+      const body=Array.from({length:12},(_,i)=>({x:26-i,y:30}));
+      g.snakes=[{body,previous:body.map(p=>({...p})),biome:0,nether:false,dir:1,stun:100,timer:0,interval:.3,alert:false,notice:0}];
+      Object.assign(g.player,{x:20,y:29,oldX:20,oldY:29,blend:1,invincible:0,hp:5,dir:1});g.reveal();
+    }""")
+    page.wait_for_timeout(300)
+    page.screenshot(path="/tmp/deep-below-chrome-boulder-held.png")
+    assert page.evaluate("testGame.boulders[0].y") == 28
+    page.keyboard.down("ArrowRight")
+    page.wait_for_function("testGame.player.x===21")
+    page.keyboard.up("ArrowRight")
+    page.wait_for_function("testGame.stats.crushed===1")
+    page.wait_for_timeout(200)
+    page.screenshot(path="/tmp/deep-below-chrome-boulder-crush.png")
+    assert page.evaluate("testGame.snakes[0].body.length") == 6
+    assert page.evaluate("testGame.player.hp") == 5
+    assert page.evaluate("[...testGame.items.values()].filter(i=>i.type==='gem').length") >= 2
+
+    # Native multi-touch: steer with one finger, light dynamite with another, keep moving.
+    page.evaluate("""() => {
+      const g=testGame;g.snakes=[];g.items.clear();
+      for(let x=8;x<=40;x++)for(let y=40;y<=60;y++)g.grid[y][x]=1;
+      Object.assign(g.player,{x:24,y:42,oldX:24,oldY:42,blend:1,invincible:0,hp:5,dynamite:2});g.reveal();
+    }""")
+    page.wait_for_function("!document.querySelector('#dynamite').disabled")
+    cdp = context.new_cdp_session(page)
+    steering = {"x": 512, "y": 640, "id": 20, "radiusX": 8, "radiusY": 8}
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [steering]})
+    page.wait_for_timeout(200)
+    r = page.locator("#dynamite").bounding_box()
+    tool = {"x": r["x"] + r["width"] / 2, "y": r["y"] + r["height"] / 2, "id": 21, "radiusX": 8, "radiusY": 8}
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [steering, tool]})
+    page.wait_for_function("testGame.charges.length===1")
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": [tool]})
+    page.wait_for_timeout(250)
+    charge = page.evaluate("testGame.charges[0]")
+    assert page.evaluate("testGame.player.dynamite") == 1
+    assert page.evaluate("testGame.player.y") > charge["y"], "steering continued after the tool finger lifted"
+    page.wait_for_function("testGame.player.y>=" + str(charge["y"] + 4))
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+    page.screenshot(path="/tmp/deep-below-chrome-dynamite-fuse.png")
+    page.wait_for_function("testGame.charges.length===0")
+    page.wait_for_timeout(120)
+    page.screenshot(path="/tmp/deep-below-chrome-dynamite-blast.png")
+    assert page.evaluate("testGame.grid[%d][%d]" % (charge["y"] - 2, charge["x"])) == 0
+    assert page.evaluate("testGame.player.hp") == 5
+    page.keyboard.press("e")
+    page.wait_for_function("testGame.charges.length===1 && testGame.player.dynamite===0")
+    page.wait_for_function("testGame.charges.length===0")
+
+    # A fossil carried home joins the persistent camp collection.
+    page.evaluate("""() => {
+      const g=testGame,p=g.player;g.charges=[];Object.assign(p,{x:29,y:6,oldX:29,oldY:6,invincible:100,hp:5});
+      g.grid[5][29]=1;g.place(29,5,'fossil',0,{id:'krona',name:'Ormdrottningens krona'});g.reveal();
+    }""")
+    page.wait_for_timeout(150)
+    page.screenshot(path="/tmp/deep-below-chrome-fossil.png")
+    page.keyboard.down("ArrowUp")
+    page.wait_for_function("testGame.player.y===3")
+    page.keyboard.up("ArrowUp")
+    assert page.evaluate("testGame.finds") == ["krona"]
+    page.locator("#bank").tap()
+    page.locator("#again").wait_for()
+    assert "Nytt i samlingen" in page.locator("#panel").inner_text()
+    assert page.locator(".relic-slot.owned").count() == 1
+    assert page.evaluate("JSON.parse(localStorage.getItem('deep-below-camp')).finds") == ["krona"]
+    for w, h in [(1024, 768), (390, 844)]:
+        page.set_viewport_size({"width": w, "height": h})
+        page.wait_for_timeout(120)
+        page.screenshot(path=f"/tmp/deep-below-chrome-collection-{w}x{h}.png")
+    page.reload()
+    page.locator("#start").wait_for()
+    assert page.locator(".relic-slot.owned").count() == 1
+    assert page.locator(".missions li").count() == 3
+    assert not errors, errors
+    print("PASS rockfall: held boulder crushes a snake after a real step, two-finger dynamite while steering, keyboard blast, fossil saved to camp collection; no page errors")
+
+
 with sync_playwright() as p:
     # Reuse the browser launched by the user's browser skill. Only our test context closes.
     browser = p.chromium.connect_over_cdp("http://127.0.0.1:9222")
@@ -383,3 +485,4 @@ with sync_playwright() as p:
     check_feedback(browser)
     check_feedback(browser, reduced=True)
     check_exploration(browser)
+    check_rockfall(browser)
